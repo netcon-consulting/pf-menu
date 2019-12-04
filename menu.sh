@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.0.0 for Postfix
+# menu.sh V1.1.0 for Postfix
 #
 # Copyright (c) 2019 NetCon Unternehmensberatung GmbH, netcon-consulting.com
 #
@@ -15,7 +15,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - initial release
+# - added Pyzor and Razor support for Rspamd
 #
 ###################################################################################################
 
@@ -39,6 +39,16 @@ declare -g -r DIR_CONFIG_FAIL2BAN='/etc/fail2ban'
 declare -g -r CRON_LOGMANAGER='/etc/cron.daily/log_manager.sh'
 declare -g -r CRON_RULES='/etc/cron.daily/update_rules.sh'
 declare -g -r CONFIG_SSH="$HOME/.ssh/config"
+declare -g -r PYZOR_PLUGIN='/usr/share/rspamd/plugins/pyzor.lua'
+declare -g -r PYZOR_DIR='/opt/pyzorsocket'
+declare -g -r PYZOR_SOCKET="$PYZOR_DIR/bin/pyzorsocket.py"
+declare -g -r PYZOR_SERVICE='/etc/init.d/pyzorsocket'
+declare -g -r PYZOR_USER='pyzorsocket'
+declare -g -r RAZOR_PLUGIN='/usr/share/rspamd/plugins/razor.lua'
+declare -g -r RAZOR_DIR='/opt/razorsocket'
+declare -g -r RAZOR_SOCKET="$RAZOR_DIR/bin/razorsocket.py"
+declare -g -r RAZOR_SERVICE='/etc/init.d/razorsocket'
+declare -g -r RAZOR_USER='razorsocket'
 
 ###################################################################################################
 # Install features
@@ -48,6 +58,8 @@ INSTALL_FEATURE=()
 INSTALL_FEATURE+=('postfwd')
 INSTALL_FEATURE+=('spamassassin')
 INSTALL_FEATURE+=('rspamd')
+INSTALL_FEATURE+=('pyzor')
+INSTALL_FEATURE+=('razor')
 INSTALL_FEATURE+=('fail2ban')
 INSTALL_FEATURE+=('dkim')
 INSTALL_FEATURE+=('spf')
@@ -57,6 +69,8 @@ INSTALL_FEATURE+=('peer')
 declare -g -r LABEL_INSTALL_POSTFWD='Postfwd'
 declare -g -r LABEL_INSTALL_SPAMASSASSIN='Spamassassin'
 declare -g -r LABEL_INSTALL_RSPAMD='Rspamd'
+declare -g -r LABEL_INSTALL_PYZOR='Pyzor'
+declare -g -r LABEL_INSTALL_RAZOR='Razor'
 declare -g -r LABEL_INSTALL_FAIL2BAN='Fail2ban'
 declare -g -r LABEL_INSTALL_DKIM='OpenDKIM'
 declare -g -r LABEL_INSTALL_SPF='SPF-check'
@@ -192,7 +206,7 @@ POSTFIX_ESMTP+=('smtpd_discard_ehlo_keywords=')
 # Header checks
 declare -g -r POSTFIX_HEADER_LABEL='Header checks'
 
-POSTFIX_HEADER+=("header_checks = regexp:$DIR_MAPS/check_header")
+POSTFIX_HEADER+=("header_checks=regexp:$DIR_MAPS/check_header")
 
 # Sender rewrite
 declare -g -r POSTFIX_REWRITE_LABEL='Sender rewrite'
@@ -330,6 +344,8 @@ declare -g -r CONFIG_RSPAMD_ACTIONS="$DIR_CONFIG_RSPAMD/override.d/actions.conf"
 declare -g -r CONFIG_RSPAMD_HEADERS="$DIR_CONFIG_RSPAMD/override.d/milter_headers.conf"
 declare -g -r CONFIG_RSPAMD_BAYES="$DIR_CONFIG_RSPAMD/override.d/classifier-bayes.conf"
 declare -g -r CONFIG_RSPAMD_MULTIMAP="$DIR_CONFIG_RSPAMD/local.d/multimap.conf"
+declare -g -r CONFIG_RSPAMD_GROUPS="$DIR_CONFIG_RSPAMD/local.d/groups.conf"
+declare -g -r CONFIG_RSPAMD_SIGNATURES="$DIR_CONFIG_RSPAMD/local.d/signatures_group.conf"
 
 declare -g -a RSPAMD_CONFIG
 
@@ -375,6 +391,8 @@ RSPAMD_FEATURE+=('sarules')
 RSPAMD_FEATURE+=('rulesupdate')
 RSPAMD_FEATURE+=('reputation')
 RSPAMD_FEATURE+=('phishing')
+RSPAMD_FEATURE+=('pyzor')
+RSPAMD_FEATURE+=('razor')
 
 for FEATURE in "${RSPAMD_FEATURE[@]}"; do
     declare -g -a RSPAMD_${FEATURE^^}
@@ -414,7 +432,6 @@ RSPAMD_HISTORY+=('servers = 127.0.0.1:6379;' "$CONFIG_RSPAMD_HISTORY")
 
 # Spamassassin rules
 declare -g -r RSPAMD_SARULES_LABEL='Heinlein SA rules'
-
 declare -r RSPAMD_SARULES_CUSTOM=1
 
 RSPAMD_SARULES+=("ruleset = \"$FILE_RULES\";" "$CONFIG_RSPAMD_SARULES")
@@ -430,11 +447,21 @@ declare -g -r RSPAMD_REPUTATION_LABEL='URL reputation'
 
 RSPAMD_REPUTATION+=('enabled = true;' "$CONFIG_RSPAMD_REPUTATION")
 
-# phishing detection
+# Phishing detection
 declare -g -r RSPAMD_PHISHING_LABEL='Phishing detection'
 
 RSPAMD_PHISHING+=('phishtank_enabled = true;' "$CONFIG_RSPAMD_PHISHING")
 RSPAMD_PHISHING+=('phishtank_map = "https://rspamd.com/phishtank/online-valid.json.zst";' "$CONFIG_RSPAMD_PHISHING")
+
+# Pyzor
+declare -g -r RSPAMD_PYZOR_LABEL='Pyzor'
+declare -g -r RSPAMD_PYZOR_CHECK=1
+declare -g -r RSPAMD_PYZOR_CUSTOM=1
+
+# Razor
+declare -g -r RSPAMD_RAZOR_LABEL='Razor'
+declare -g -r RSPAMD_RAZOR_CHECK=1
+declare -g -r RSPAMD_RAZOR_CUSTOM=1
 
 ###################################################################################################
 # Fail2ban configs
@@ -482,6 +509,8 @@ declare -g -r HELP_INSTALL_FEATURE='Select feature to install.
 * Postfwd - Install Postfwd
 * Spamassassin - Install Spamassassin
 * Rspamd - Install Rspamd
+* Pyzor - Install Pyzor
+* Razor - Install Razor
 * Fail2ban - Install Fail2ban
 * OpenDKIM - Install OpenDKIM
 * SPF-check - Install SPF-check (policyd-spf)
@@ -536,7 +565,9 @@ declare -g -r HELP_RSPAMD_FEATURE='Select Rspamd feature to enable.
 * Heinlein SA rules - Enable Heinlein Spamassassin rules
 * Automatic SA rules update - Enable cron job for daily updates of Spamassassin rules
 * URL reputation - Enable checking of URLs against reputation service
-* Phishing detection - Enable detection of phishing attempts'
+* Phishing detection - Enable detection of phishing attempts
+* Pyzor - Enable Pyzor collaborative filtering network
+* Razor - Enable Razor collaborative filtering network'
 
 declare -g -r HELP_RSPAMD_CONFIG='Select Rspamd config to edit. Sync option only available if peer setup.'
 
@@ -630,7 +661,7 @@ get_file() {
     return "$RET_CODE"
 }
 
-# check whether postfwd is installed
+# check whether Postfwd is installed
 # parameters:
 # none
 # return values:
@@ -640,7 +671,7 @@ check_installed_postfwd() {
     [ "$?" = 0 ] && return 0 || return 1
 }
 
-# check whether spamassassin is installed
+# check whether Spamassassin is installed
 # parameters:
 # none
 # return values:
@@ -650,13 +681,35 @@ check_installed_spamassassin() {
     [ "$?" = 0 ] && return 0 || return 1
 }
 
-# check whether rspamd is installed
+# check whether Rspamd is installed
 # parameters:
 # none
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_rspamd() {
     which rspamd &>/dev/null
+    [ "$?" = 0 ] && return 0 || return 1
+}
+
+# check whether Pyzor is installed
+# parameters:
+# none
+# return values:
+# error code - 0 for installed, 1 for not installed
+check_installed_pyzor() {
+    check_ubuntu || return 1
+    which pyzor &>/dev/null
+    [ "$?" = 0 ] && return 0 || return 1
+}
+
+# check whether Razor is installed
+# parameters:
+# none
+# return values:
+# error code - 0 for installed, 1 for not installed
+check_installed_razor() {
+    check_ubuntu || return 1
+    which razor-check &>/dev/null
     [ "$?" = 0 ] && return 0 || return 1
 }
 
@@ -705,11 +758,21 @@ check_installed_logmanager() {
 # return values:
 # error code - 0 for peer available, 1 for not available
 check_installed_peer() {
-    if [ -f "$CONFIG_SSH"] && grep -q '^Host mx$' "$CONFIG_SSH"; then
+    if [ -f "$CONFIG_SSH" ] && grep -q '^Host mx$' "$CONFIG_SSH"; then
         return 0
     else
         return 1
     fi
+}
+
+# check whether daemonize is installed
+# parameters:
+# none
+# return values:
+# error code - 0 for installed, 1 for not installed
+check_installed_daemonize() {
+    which daemonize &>/dev/null
+    [ "$?" = 0 ] && return 0 || return 1
 }
 
 # check whether any Postfix plugin is available
@@ -1685,7 +1748,7 @@ rulesupdate_enable() {
     AA==
     '
 
-    printf '%s' "$PACKED_SCRIPT" | base64 -d | gunzip > "$CRON_RULES"
+    printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$CRON_RULES"
     chmod 700 "$CRON_RULES"
     "$CRON_RULES"
 }
@@ -1697,6 +1760,241 @@ rulesupdate_enable() {
 # none
 rulesupdate_disable() {
     rm -f "$CRON_RULES"
+}
+
+# check Pyzor status
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 for disabled
+pyzor_status() {
+    if [ -f "$CONFIG_RSPAMD_LOCAL" ]                                                                                                                                                                                                                                                                                        \
+        && grep -q '^pyzor { }$' "$CONFIG_RSPAMD_LOCAL"                                                                                                                                                                                                                                                                     \
+        && [ -f "$CONFIG_RSPAMD_GROUPS" ]                                                                                                                                                                                                                                                                                   \
+        && [ "$(sed -n '/^group "signatures" {$/,/^}$/p' "$CONFIG_RSPAMD_GROUPS")" = 'group "signatures" {'$'\n\t''.include(try=true; priority=1; duplicate=merge) "$LOCAL_CONFDIR/local.d/signatures_group.conf"'$'\n\t''.include(try=true; priority=10) "$LOCAL_CONFDIR/override.d/signatures_group.conf"'$'\n''}' ]      \
+        && [ -f "$CONFIG_RSPAMD_SIGNATURES" ]                                                                                                                                                                                                                                                                               \
+        && [ "$(sed 'H;/^symbols = {$/h;/^}$/!d;x;/\n\t"PYZOR" {/!d' "$CONFIG_RSPAMD_SIGNATURES")" = 'symbols = {'$'\n\t''"PYZOR" {'$'\n\t\t''weight = 2.5;'$'\n\t\t''description = "check message signatures against the Pyzor collaborative filtering network";'$'\n\t''}'$'\n''}' ]                                      \
+        && [ -f "$PYZOR_PLUGIN" ]                                                                                                                                                                                                                                                                                           \
+        && [ -f "$PYZOR_SOCKET" ]                                                                                                                                                                                                                                                                                           \
+        && [ -f "$PYZOR_SERVICE" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# enable Pyzor
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 for disabled
+pyzor_enable() {
+    declare PACKED_SCRIPT
+
+    if ! grep -q '^pyzor { }$' "$CONFIG_RSPAMD_LOCAL"; then
+        echo 'pyzor { }' >> "$CONFIG_RSPAMD_LOCAL"
+    fi
+    if ! [ -f "$CONFIG_RSPAMD_GROUPS" ] || [ "$(sed -n '/^group "signatures" {$/,/^}$/p' "$CONFIG_RSPAMD_GROUPS")" != 'group "signatures" {'$'\n\t''.include(try=true; priority=1; duplicate=merge) "$LOCAL_CONFDIR/local.d/signatures_group.conf"'$'\n\t''.include(try=true; priority=10) "$LOCAL_CONFDIR/override.d/signatures_group.conf"'$'\n''}' ]; then
+        echo $'\n''group "signatures" {'$'\n\t''.include(try=true; priority=1; duplicate=merge) "$LOCAL_CONFDIR/local.d/signatures_group.conf"'$'\n\t''.include(try=true; priority=10) "$LOCAL_CONFDIR/override.d/signatures_group.conf"'$'\n''}' >> "$CONFIG_RSPAMD_GROUPS"
+    fi
+    if ! [ -f "$CONFIG_RSPAMD_SIGNATURES" ] || [ "$(sed 'H;/^symbols = {$/h;/^}$/!d;x;/\n\t"PYZOR" {/!d' "$CONFIG_RSPAMD_SIGNATURES")" != 'symbols = {'$'\n\t''"PYZOR" {'$'\n\t\t''weight = 2.5;'$'\n\t\t''description = "check message signatures against the Pyzor collaborative filtering network";'$'\n\t''}'$'\n''}' ]; then
+        echo $'\n''symbols = {'$'\n\t''"PYZOR" {'$'\n\t\t''weight = 2.5;'$'\n\t\t''description = "check message signatures against the Pyzor collaborative filtering network";'$'\n\t''}'$'\n''}' >> "$CONFIG_RSPAMD_SIGNATURES"
+    fi
+
+    PACKED_SCRIPT='
+    H4sIAANBq1wAA5VVbW/TMBD+TH6FFWlqKnVRWiiISt2XDQkJ2CaEQLypcpJrGpbaxXZUyrT/zp2d
+    95UKug+L7+55fL7XQia8YGVSsCVT8LPMFTAfj75XWE0hswxUV6n0jm/TlVPUZibZHbFBqe9VFteo
+    93eH37LB6MM2lsXKykh5+/nLzftaKXdGE6MjSqRY59kiA7PiRbFCZXA99rzzc3YFa14WhmkwJheZ
+    ruDJOlttpDbEO529CCP8m/od5U4qUs5fzp8Sz71/+9FfMH+GVhPmX8oU7DGK6Pjp7fmlLIUhUeT0
+    1Wn+lI4fNgp46s7Pps9JdJXzjAQ3b/yHOgTrUiQml4IlG0ju3MMDw/Xd2GP4GxrFASg1YSk33BnQ
+    L18zlDKzAdHIHJjSEaLul6VEFygbgCFAmVQLdqbRL/we93AKTKlaKhCpN6BMIS6zbXA9YY53RA4R
+    3QglGGKFYQ+sk5iRFktv2XGlbfFgQYXuEIwHNvLOeoVGzmBh/60q3uEFnTAIaRD8T5GwEbD8SIVP
+    1jspNPxHSAY+E0PrMFWljH9AYh49br/JDRS5NpCivZGi3MYYA8J/bavq+xCmgMrzGKYBDLOUi7Vs
+    3puQ1fJMs32xtG+sCSddjzok2Ejv+B20Ws0sB+OsyI0pgMW5Cfvmhxgo+ApGGs1i7D9M9Z4f0GWs
+    lD5ZLlDIE8s56dLEJd5hWAEcC9VscjTVTMst4LfI2hs7EWk+z7uPGaZoD3m2oQ6PvG7RNOCLJZtG
+    0ePqaXDTcN6WQKFhAJ7NT2JnJ8GnsdEp6JRxkfbrCt94gi8KZ8dLGYkro4tjBFRKixzbRJkV1h7O
+    2KA7sCcVeMJcg4ZrqbbcBHXtpbb20r/W3vjRyGmcq3vATa8lu29M/cvXry7ffBN+W0PWTepAXBEG
+    BLag0z3UXEdnmI/c6kDDwG2kqhVwX4XVvcF97wrqREI2wmq51HumVVSLpd4xrUJvSpPKvSAqVUKr
+    oNFWLU/oMmEUipgndHcSu0eNPRslTJ3dj03SKkFoveqlsrMIG4sm3F2o9fsRtHpNY9HPVH87K8go
+    t2rl6qQTQcG3gCy9+jn6zHYvTrwn5rAj1Kg2GKEsU7Kk0TvSeSY4zmnQoyY02C3dpLuR6OMY3Mq0
+    xBlGG8P5ijgqzWsXzz/X6mWbBAkAAA==
+    '
+    printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$PYZOR_PLUGIN"
+
+    groupadd "$PYZOR_USER"
+    useradd -g "$PYZOR_USER" "$PYZOR_USER"
+    mkdir -p "$PYZOR_DIR/bin/"
+
+    PACKED_SCRIPT='
+    H4sIAGtBq1wAA3VUTY/TMBC951eYcHFEcYW4VeoBuistQitVtDdAloknrVvHDnba3YL474w/mmZL
+    8SX2eN6b8byZvH41PXg3/aHMtDv1W2veF6rtrOuJcJtOOA/nM7RCaRZN7spmtapPZ5v1593OW1M0
+    zrbE23oPPQKP4Ei+XS+Wq2iYkPXWgZDKbB7V8yczIasez+0X+HkA3z8IIzWGPLN2p1/WsVorMP1L
+    m1Qb9C+KotbCe/IST2+RVrOiILgkNGQbTdSDbtBM8qpbSeYkGJlrlAYWMtXKAK2YhNpK3HydvX33
+    fUCoJoHmpFw83C8+lxeysCJVisXrLdR7Wg33oD3c8H5yqgceqkl/l+CcdeWMlAezN/bJkNq2LdKV
+    f6rrt2T+qxclBfFRY0HZx1MPfhn3NOk5H4vLVo/r5SXR1m+QIEPjh15KlPOIuURFgutIIHYnenEX
+    txgMqSp2FPoAl5qHtAdQUpot4gernh6VqEah/qnUfkaOpLGO7Ce4USbRMnRoPa3G1RqhAsuEyFG5
+    dphIuGLy0Haeyoq8IeU3U14Fjr0RieiOgUmNUQ29mDqdXjf6MAM5YIe+iAlJYfENzeYwipjGeSLZ
+    B7c5tFiNrJcEXzvV9cqaeXn/3FkPqXbEGiLy8JXVQMWElFxkDlriyZUTsgXdzeMBMOHeEq1QIIMc
+    /4eG4RugcRJv43zOPvVKIEAJkgAhIN7SYAvs+DtQSB2PgbHKft4d0S3XMfldzXJ0693poh1iWPzp
+    cOwDCMDk1CgjtL7l6HitsXwhuQIHmXMjWuA8TjPnQRPO80AngYq/7vjOR0EFAAA=
+    '
+    printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$PYZOR_SOCKET"
+    chown "$PYZOR_USER:$PYZOR_USER" "$PYZOR_SOCKET"
+    chmod 0700 "$PYZOR_SOCKET"
+
+    PACKED_SCRIPT='
+    H4sIAHmU510AA5VSXU/CMBR976+4jgXFZI5piAohxphpjBjIABM1xpRSWcNoZ9upCPx3R4E5Pnxw
+    fbrnnntOz+0Ke26PcbeHVYgKqADx+FtIJciQalOTcEgEf2ODKjhwVgGvkoJ9qohksWaCV9cnIJaC
+    UKU4HtH1Fgr8zsNlo15GraB5U9/P9fZRo3l1d33b8OuW+4GlG6Wwq5KeGivXntMt1Hp8agbtlOZ3
+    XrttP9gQQEpjqQ9KMEGw/CgJBTgcrPa8xfgAjFQVrIzSx3QkOPum4CRpd8MCXBFrN2djNpWrj+Ix
+    eMenR+X0eFA5r5xkysuw9kWGPIO9AMGh71CGFygWQYuEhGCv4q/dPSsk1Ynkq3E0m4cV8R9Zw0Sb
+    rH3xybcDD1kU4SgCp+MH9ztD/zeBHIHz9v8EBCsKlu1ZwLihmfcrZROmzKpabckRcZ4i4m0G1okq
+    bcKSbsnnZnd6HZbWl2t1FR6kv7RZKUzMzHQuM114Tpces99l0y+mwcsLU4UJMvBqFT/avA/GfwMA
+    AA==
+    '
+    printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$PYZOR_SERVICE"
+    chmod +x "$PYZOR_SERVICE"
+
+    check_installed_daemonize || apt install -y daemonize &>/dev/null
+
+    systemctl daemon-reload
+    systemctl start pyzorsocket
+    update-rc.d pyzorsocket defaults
+}
+
+# disable Pyzor
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 for disabled
+pyzor_disable() {
+    sed -i '/^pyzor { }$/d' "$CONFIG_RSPAMD_LOCAL"
+    sed -i 'H;/^symbols = {$/h;/^}$/!d;x;/\n\t"PYZOR" {/d' "$CONFIG_RSPAMD_SIGNATURES"
+    [ "$(rspamd_feature_status 'razor')" = 'off' ] && sed -i '/^group "signatures" {$/,/^}$/d' "$CONFIG_RSPAMD_GROUPS"
+
+    update-rc.d pyzorsocket remove
+    systemctl stop pyzorsocket
+
+    rm -rf "$PYZOR_PLUGIN" "$PYZOR_DIR" "$PYZOR_SERVICE"
+    userdel -r "$PYZOR_USER" &>/dev/null
+    groupdel "$PYZOR_USER" &>/dev/null
+
+    systemctl daemon-reload
+}
+
+# check Razor status
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 for disabled
+razor_status() {
+    if [ -f "$CONFIG_RSPAMD_LOCAL" ]                                                                                                                                                                                                                                                                                        \
+        && grep -q '^razor { }$' "$CONFIG_RSPAMD_LOCAL"                                                                                                                                                                                                                                                                     \
+        &&  [ -f "$CONFIG_RSPAMD_GROUPS" ]                                                                                                                                                                                                                                                                                  \
+        && [ "$(sed -n '/^group "signatures" {$/,/^}$/p' "$CONFIG_RSPAMD_GROUPS")" = 'group "signatures" {'$'\n\t''.include(try=true; priority=1; duplicate=merge) "$LOCAL_CONFDIR/local.d/signatures_group.conf"'$'\n\t''.include(try=true; priority=10) "$LOCAL_CONFDIR/override.d/signatures_group.conf"'$'\n''}' ]      \
+        && [ -f "$CONFIG_RSPAMD_SIGNATURES" ]                                                                                                                                                                                                                                                                               \
+        && [ "$(sed 'H;/^symbols = {$/h;/^}$/!d;x;/\n\t"RAZOR" {/!d' "$CONFIG_RSPAMD_SIGNATURES")" = 'symbols = {'$'\n\t''"RAZOR" {'$'\n\t\t''weight = 2.5;'$'\n\t\t''description = "check message signatures against the Razor collaborative filtering network";'$'\n\t''}'$'\n''}' ]                                      \
+        && [ -f "$RAZOR_PLUGIN" ]                                                                                                                                                                                                                                                                                           \
+        && [ -f "$RAZOR_SOCKET" ]                                                                                                                                                                                                                                                                                           \
+        && [ -f "$RAZOR_SERVICE" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# enable Razor
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 for disabled
+razor_enable() {
+    declare PACKED_SCRIPT
+
+    if ! grep -q '^razor { }$' "$CONFIG_RSPAMD_LOCAL"; then
+        echo 'razor { }' >> "$CONFIG_RSPAMD_LOCAL"
+    fi
+    if ! [ -f "$CONFIG_RSPAMD_GROUPS" ] || [ "$(sed -n '/^group "signatures" {$/,/^}$/p' "$CONFIG_RSPAMD_GROUPS")" != 'group "signatures" {'$'\n\t''.include(try=true; priority=1; duplicate=merge) "$LOCAL_CONFDIR/local.d/signatures_group.conf"'$'\n\t''.include(try=true; priority=10) "$LOCAL_CONFDIR/override.d/signatures_group.conf"'$'\n''}' ]; then
+        echo $'\n''group "signatures" {'$'\n\t''.include(try=true; priority=1; duplicate=merge) "$LOCAL_CONFDIR/local.d/signatures_group.conf"'$'\n\t''.include(try=true; priority=10) "$LOCAL_CONFDIR/override.d/signatures_group.conf"'$'\n''}' >> "$CONFIG_RSPAMD_GROUPS"
+    fi
+    if ! [ -f "$CONFIG_RSPAMD_SIGNATURES" ] || [ "$(sed 'H;/^symbols = {$/h;/^}$/!d;x;/\n\t"RAZOR" {/!d' "$CONFIG_RSPAMD_SIGNATURES")" != 'symbols = {'$'\n\t''"RAZOR" {'$'\n\t\t''weight = 2.5;'$'\n\t\t''description = "check message signatures against the Razor collaborative filtering network";'$'\n\t''}'$'\n''}' ]; then
+        echo $'\n''symbols = {'$'\n\t''"RAZOR" {'$'\n\t\t''weight = 2.5;'$'\n\t\t''description = "check message signatures against the Razor collaborative filtering network";'$'\n\t''}'$'\n''}' >> "$CONFIG_RSPAMD_SIGNATURES"
+    fi
+
+    PACKED_SCRIPT='
+    H4sIAAdCq1wAA4VUTWvbQBA9R79iEQRLoJg4lxJDDiUtFAou5FgKYiWNPvBq191d0bih/70zu6uv
+    2KXywWLmzZuZNzMSquSCCdU0oNkT0/Bz6DSwWJsT76vcO+JIOJgtT1cwaI2jgDigP9b8t5pizLkv
+    lMidjZwvH79/exmd6mQNMXqiUsm6a/YN2JwLkaMzOaRRdHfHPkHNB2GZAWs72ZgQXtZN3ipjiXf3
+    8GF7j79dvHCelCbn4+7xYaywHmRpOyVZ2UJ59HUllptjGjF83oOKBLTOWMUt9wB6upqhldkW5GTz
+    waTWFn2vjjJDLVAswArRpvSe3Zo4o/d0FafBDnqmAllFMyXVo8GQ8hZ71dh/clGOB6AMpGR8WRlV
+    s++kAW1zxKKWyXIwGdtt79NrvVRQDE2fHDIWGnIJZigIA8v87dX0/yJrL7j+p+cgj1L9ki6hwn5Y
+    rVXPXBNGlUewQWPypxeK0v9izONwntjbBI2fv3x+/vpDxtlkcuLRVuKCWpA2Sb3vz8h1vTnk1mec
+    lq8O+3RovJZtyJu8rVLQgClyMobVHrd8doS1Hjd8dph2sBXJg1R6gCy6oU0JNwtLCmxfFLykpGUR
+    2kkjpw+O093lNMVg2Lp6VrNdHOCEmIRehrqKL0JDHxNiPaP1V0FD0xkLOvd7u9BO8h6QZbXP0Y09
+    n8i6GRvdoK3RaqA72piukRxvDszmuiTzt2HWZtzOMO9O1uo1iW8N61U1CGBSWeaLReIKd/DgBf0L
+    bFL70WMFAAA=
+    '
+    printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$RAZOR_PLUGIN"
+
+    groupadd "$RAZOR_USER"
+    useradd -g "$RAZOR_USER" "$RAZOR_USER"
+    mkdir -p "$RAZOR_DIR/bin/"
+
+    PACKED_SCRIPT='
+    H4sIAHhCq1wAA31UUW/TMBB+Jr/CmIc6oktBvKBJfYBpaAhNqlh5GpPlJZfWm2MH29lWEP+ds+Ok
+    WdXhl9iXu+/O932+N68XnbOLW6kX7c5vjf6QyaY11hNhN62wDoYzNEKqIprsgc0oWe4Gm3HD7s4Z
+    Pexdd9taU4JzWW1NQ5wp78Ej1ANYknzWZ6uraJiT9daCqKTeXMqnr3pOrjyem+/wqwPnL4SuFBaR
+    ZaUSzpHnZnbMNz/NMoKrgppso4k5UDWaSVplU5ElCcbC1lJBEQpQUgPLiwpKU+Hm+vTk/c0YIes+
+    aEno2cX52Te6BwsrQvW5eLmF8p7l439QDo54P1rpgYe2sT8UrDWWnhLa6XttHjUpTdMgHP2bH94l
+    4R/cqKcKLzVlrvi88+BWcc964pZTFoury/VqX2jjNgiQQuOH7VuU6girRi/TgmZ04Zt2sb5cWfEb
+    y58T+kj3cOmKDGEL4bjzFilm+dShVAaTTKAtuE75wM0ooaIUSrFrOko3JjuJXQgpn9dwk2evpqQN
+    gEvy7hkHPQWR+77K29AqNnOtaGZzMvux/nLycZb/h8WXELYHACN9E8JD7JxUE/7u8M7hV1F1TetY
+    lZO3hP7UNHsx3V0BuldqPj6O/kWxwwc1vrWUsEVfjAlFoRo0S+YwBLCMYRYUn+yma0D7JKAKXGll
+    66XRS3r+1CJ1JDadGE1EeuSJ/4BRiKriImEwiqcgkS2odhkPyC3xhijpPGjEeDk0DIwxNE6P43Eu
+    Vd+LNwC4QVwhIf5lwRbQcexIhI7HgDgQ5ewDuqU+9n4HwyW6ebvbc4cxRRxuvDYWQmDvVEuN0j3m
+    aPmo/AxFyrkWDXAexwvngRPO04TpCcr+AZfHVnq7BQAA
+    '
+    printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$RAZOR_SOCKET"
+    chown "$RAZOR_USER:$RAZOR_USER" "$RAZOR_SOCKET"
+    chmod 0700 "$RAZOR_SOCKET"
+
+    PACKED_SCRIPT='
+    H4sIAKim510AA5VSXU/CMBR976+4jgXFZIyREBVCDDHTGDGYAT5ojCmlsIbRzrZTEfjvjgpzfPjg
+    +nTPPfecntsVjtwB4+4AqxAVUAEk/hJSCTKh2tRDqohksWaC17ebEEtBqFIcT+lui4QTIviIjevg
+    wHkNvBpCgd97bLWbFfQQdG6ax7mBY9TuXN1d37b9puW+Y+lGKeyqZKBmyrVXdAsFradO0E1pfu+1
+    3/WDHQGkNJb6pARzBOuPklCAw8HqrlqMj8FI1cHKKENMp4KzLwpOAvauBbgi1m7OxmwqV5fjGXjV
+    s3IlPR5ceBfVTHkd1r7MkOfUwIDg0DeowAsUi6BFQkKwN/G37p4VkupE8s04Wq7CiviPrGGiTdah
+    +OD7gScsinAUgdPzg/vDof8bQU7BGf0/AsGKgmV7FjBuaOYBS9mEKbOq0VhzRJyniHifgXWiSruw
+    pHvyudmDXqel7e1afYXH6Y9udgpzM7NYySx+PBdrj+Xvtukn0+DlhanCBBl4s4pvLtvVmoADAAA=
+    '
+    printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$RAZOR_SERVICE"
+    chmod +x "$RAZOR_SERVICE"
+
+    check_installed_daemonize || apt install -y daemonize &>/dev/null
+
+    systemctl daemon-reload
+    systemctl start razorsocket
+    update-rc.d razorsocket defaults
+}
+
+# disable Razor
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 for disabled
+razor_disable() {
+    sed -i '/^razor { }$/d' "$CONFIG_RSPAMD_LOCAL"
+    sed -i 'H;/^symbols = {$/h;/^}$/!d;x;/\n\t"RAZOR" {/d' "$CONFIG_RSPAMD_SIGNATURES"
+    [ "$(rspamd_feature_status 'pyzor')" = 'off' ] && sed -i '/^group "signatures" {$/,/^}$/d' "$CONFIG_RSPAMD_GROUPS"
+
+    update-rc.d razorsocket remove
+    systemctl stop razorsocket
+
+    rm -rf "$RAZOR_PLUGIN" "$RAZOR_DIR" "$RAZOR_SERVICE"
+    userdel -r "$RAZOR_USER" &>/dev/null
+    groupdel "$RAZOR_USER" &>/dev/null
+
+    systemctl daemon-reload
 }
 
 # checks status of given Rspamd feature
@@ -2213,6 +2511,26 @@ install_rspamd() {
     apt-get --no-install-recommends install -y rspamd &>/dev/null
 }
 
+# install Pyzor
+# parameters:
+# none
+# return values:
+# none
+install_pyzor() {
+    show_wait
+    apt install -y pyzor &>/dev/null
+}
+
+# install Razor
+# parameters:
+# none
+# return values:
+# none
+install_razor() {
+    show_wait
+    apt install -y razor &>/dev/null
+}
+
 # install Fail2ban
 # parameters:
 # none
@@ -2283,7 +2601,7 @@ install_logmanager() {
     8FPVbMphih/8mzth42/GjHjpuRAAAA==
     '
 
-    printf '%s' "$PACKED_SCRIPT" | base64 -d | gunzip > "$CRON_LOGMANAGER"
+    printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$CRON_LOGMANAGER"
     chmod 700 "$CRON_LOGMANAGER"
     "$CRON_LOGMANAGER"
 }
@@ -2320,7 +2638,7 @@ install_peer() {
                 if [ -z "$PASSWORD" ]; then
                     ssh-copy-id -p "$SSH_PORT" -o 'StrictHostKeyChecking=accept-new' -i "$SSH_KEY" "root@$IP_ADDRESS" &>/dev/null
                 else
-                    which sshpass &>/dev/null || apt install -y sshpass
+                    which sshpass &>/dev/null || apt install -y sshpass &>/dev/null
 
                     sshpass -p "$PASSWORD" ssh-copy-id -p "$SSH_PORT" -o 'StrictHostKeyChecking=accept-new' -i "$SSH_KEY" "root@$IP_ADDRESS" &>/dev/null
                 fi
@@ -2547,7 +2865,7 @@ if ! [ -f "$CONFIG_BASH" ] || ! grep -q "alias menu=$HOME/menu.sh" "$CONFIG_BASH
 fi
 
 check_update
-write examples
+write_examples
 
 while true; do
     MENU_MAIN=()
