@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.1.0 for Postfix
+# menu.sh V1.2.0 for Postfix
 #
 # Copyright (c) 2019 NetCon Unternehmensberatung GmbH, netcon-consulting.com
 #
@@ -15,7 +15,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - added Pyzor and Razor support for Rspamd
+# - bugfix
 #
 ###################################################################################################
 
@@ -2721,13 +2721,14 @@ check_update() {
         if [ "$MAJOR_DL" -gt "$MAJOR_CURRENT" ] ||
         ([ "$MAJOR_DL" = "$MAJOR_CURRENT" ] && [ "$MINOR_DL" -gt "$MINOR_CURRENT" ]) ||
         ([ "$MAJOR_DL" = "$MAJOR_CURRENT" ] && [ "$MINOR_DL" = "$MINOR_CURRENT" ] && [ "$BUILD_DL" -gt "$BUILD_CURRENT" ]); then
-            "$DIALOG" --clear --backtitle "$TITLE_MAIN" --yesno 'New update available. Install?' 0 40
+            "$DIALOG" --clear --backtitle "$TITLE_MAIN" --yesno 'New update available. Install?' 0 0
             if [ "$?" = 0 ]; then
                 INFO_START=$(expr $(grep -n '# Changelog:' $TMP_UPDATE | head -1 | awk -F: '{print $1}') + 1)
                 INFO_END=$(expr $(grep -n '###################################################################################################' "$TMP_UPDATE" | head -2 | tail -1 | awk -F: '{print $1}') - 2)
                 INFO_TEXT="$(sed -n "$INFO_START,$INFO_END p" "$TMP_UPDATE" | sed 's/^#//g' | sed 's/^ //g')"
                 "$DIALOG" --clear --backtitle "$TITLE_MAIN" --title 'Changelog' --msgbox "$INFO_TEXT" 0 0
                 mv -f "$TMP_UPDATE" "$0"
+                chmod +x "$0"
                 "$0"
                 exit 0
             fi
