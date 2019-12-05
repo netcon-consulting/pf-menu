@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.2.0 for Postfix
+# menu.sh V1.3.0 for Postfix
 #
 # Copyright (c) 2019 NetCon Unternehmensberatung GmbH, netcon-consulting.com
 #
@@ -15,7 +15,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - bugfix
+# - install Postfwd from Github repo
 #
 ###################################################################################################
 
@@ -2481,8 +2481,22 @@ check_ubuntu() {
 # return values:
 # none
 install_postfwd() {
+    declare -r POSTFWD_USER='postfwd'
+
     show_wait
-    apt install -y postfwd &>/dev/null
+
+    groupadd "$POSTFWD_USER"
+    useradd -g "$POSTFWD_USER" "$POSTFWD_USER"
+
+    mkdir -p /usr/local/postfwd/sbin
+    wget https://raw.githubusercontent.com/postfwd/postfwd/master/sbin/postfwd3 -O - 2>/dev/null > /usr/local/postfwd/sbin/postfwd
+    chmod +x /usr/local/postfwd/sbin/postfwd
+    wget https://raw.githubusercontent.com/postfwd/postfwd/master/bin/postfwd-script.sh -O - 2>/dev/null | sed "s/nobody/$POSTFWD_USER/" > /etc/init.d/postfwd
+    chmod +x /etc/init.d/postfwd
+
+    systemctl daemon-reload
+    systemctl start postfwd
+    update-rc.d postfwd defaults
 }
 
 # install Spamassassin
