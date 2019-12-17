@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.3.0 for Postfix
+# menu.sh V1.4.0 for Postfix
 #
 # Copyright (c) 2019 NetCon Unternehmensberatung GmbH, netcon-consulting.com
 #
@@ -15,13 +15,21 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - install Postfwd from Github repo
+# - major rework of menu structure
+# - added Submission port Postfix feature
+# - added installation option for Logwatch and reboot alert
+# - added options for selecting the text editor and configuring email recipient addresses
+# - added option for managing Fail2ban jails
+# - added current and available update version info to install menu with option to update
+# - added option for enabling/disabling automatic updates
+# - added Rspamd stats & info
+# - added info option for install log
+# - added info option about pending updates
 #
 ###################################################################################################
 
 declare -g -r VERSION_MENU="$(grep '^# menu.sh V' "$0" | awk '{print $3}')"
 declare -g -r DIALOG='dialog'
-declare -g -r TXT_EDITOR='vim'
 declare -g -r LINK_GITHUB='https://raw.githubusercontent.com/netcon-consulting/pf-menu/master'
 declare -g -r LINK_UPDATE="$LINK_GITHUB/menu.sh"
 declare -g -r TITLE_MAIN='NetCon Postfix Made Easy'
@@ -37,6 +45,8 @@ declare -g -r FILE_RULES="$DIR_CONFIG_RSPAMD/local.d/spamassassin.rules"
 declare -g -r DIR_LIB_RSPAMD='/var/lib/rspamd'
 declare -g -r DIR_CONFIG_FAIL2BAN='/etc/fail2ban'
 declare -g -r CRON_LOGMANAGER='/etc/cron.daily/log_manager.sh'
+declare -g -r SCRIPT_REBOOT='/etc/netcon-scripts/reboot-alert.sh'
+declare -g -r CRONTAB_REBOOT='@reboot /etc/netcon-scripts/reboot-alert.sh'
 declare -g -r CRON_RULES='/etc/cron.daily/update_rules.sh'
 declare -g -r CONFIG_SSH="$HOME/.ssh/config"
 declare -g -r PYZOR_PLUGIN='/usr/share/rspamd/plugins/pyzor.lua'
@@ -49,6 +59,12 @@ declare -g -r RAZOR_DIR='/opt/razorsocket'
 declare -g -r RAZOR_SOCKET="$RAZOR_DIR/bin/razorsocket.py"
 declare -g -r RAZOR_SERVICE='/etc/init.d/razorsocket'
 declare -g -r RAZOR_USER='razorsocket'
+declare -g -r CONFIG_UPDATE='/etc/apt/apt.conf.d/50unattended-upgrades'
+declare -g -r CONFIG_LOGWATCH='/etc/logwatch/conf/logwatch.conf'
+
+###################################################################################################
+# Default settings
+declare -g -r DEFAULT_EDITOR='vim'
 
 ###################################################################################################
 # Install features
@@ -63,18 +79,55 @@ INSTALL_FEATURE+=('razor')
 INSTALL_FEATURE+=('fail2ban')
 INSTALL_FEATURE+=('dkim')
 INSTALL_FEATURE+=('spf')
+INSTALL_FEATURE+=('logwatch')
 INSTALL_FEATURE+=('logmanager')
+INSTALL_FEATURE+=('reboot')
 INSTALL_FEATURE+=('peer')
 
-declare -g -r LABEL_INSTALL_POSTFWD='Postfwd'
+# Postfwd
+declare -g -r LABEL_INSTALL_POSTFWD='Postfwd3'
+declare -g -r INSTALL_POSTFWD_CUSTOM=1
+declare -g -r INSTALL_POSTFWD_LINK='https://raw.githubusercontent.com/postfwd/postfwd/master/sbin/postfwd3'
+
+# Spamassassin
 declare -g -r LABEL_INSTALL_SPAMASSASSIN='Spamassassin'
+declare -g -r INSTALL_SPAMASSASSIN_PACKAGE='spamassassin'
+
+# Rspamd
 declare -g -r LABEL_INSTALL_RSPAMD='Rspamd'
+declare -g -r INSTALL_RSPAMD_PACKAGE='rspamd'
+
+# Pyzor
 declare -g -r LABEL_INSTALL_PYZOR='Pyzor'
+declare -g -r INSTALL_PYZOR_PACKAGE='pyzor'
+
+# Razor
 declare -g -r LABEL_INSTALL_RAZOR='Razor'
+declare -g -r INSTALL_RAZOR_PACKAGE='razor'
+
+# Fail2ban
 declare -g -r LABEL_INSTALL_FAIL2BAN='Fail2ban'
+declare -g -r INSTALL_FAIL2BAN_PACKAGE='fail2ban'
+
+# OpenDKIM
 declare -g -r LABEL_INSTALL_DKIM='OpenDKIM'
+declare -g -r INSTALL_DKIM_PACKAGE='opendkim'
+
+# SPF-Check
 declare -g -r LABEL_INSTALL_SPF='SPF-check'
+declare -g -r INSTALL_SPF_PACKAGE='postfix-policyd-spf-python'
+
+# Logwatch
+declare -g -r LABEL_INSTALL_LOGWATCH='Logwatch'
+declare -g -r INSTALL_LOGWATCH_PACKAGE='logwatch'
+
+# Log-manager
 declare -g -r LABEL_INSTALL_LOGMANAGER='Log-manager'
+
+# Reboot alert
+declare -g -r LABEL_INSTALL_REBOOT='Reboot alert'
+
+# Setup peer
 declare -g -r LABEL_INSTALL_PEER='Setup peer'
 
 ###################################################################################################
@@ -154,6 +207,7 @@ POSTFIX_FEATURE+=('milter')
 POSTFIX_FEATURE+=('bounce')
 POSTFIX_FEATURE+=('postscreen')
 POSTFIX_FEATURE+=('psdeep')
+POSTFIX_FEATURE+=('submission')
 POSTFIX_FEATURE+=('recipient')
 POSTFIX_FEATURE+=('postfwd')
 POSTFIX_FEATURE+=('spamassassin')
@@ -255,6 +309,10 @@ POSTFIX_PSDEEP+=('postscreen_non_smtp_command_enable=yes')
 POSTFIX_PSDEEP+=('postscreen_pipelining_enable=yes')
 POSTFIX_PSDEEP+=('postscreen_dnsbl_whitelist_threshold=-1')
 
+# Submission port
+declare -g -r POSTFIX_SUBMISSION_LABEL='Submission port'
+declare -g -r POSTFIX_SUBMISSION_CUSTOM=1
+
 # Recipient restrictions
 declare -g -r RECIPIENT_ACCESS="check_client_access cidr:$CONFIG_POSTFIX_CLIENT, check_sender_access regexp:$CONFIG_POSTFIX_SENDER, check_recipient_access regexp:$CONFIG_POSTFIX_RECIPIENT, check_helo_access regexp:$CONFIG_POSTFIX_HELO"
 
@@ -268,7 +326,7 @@ POSTFIX_RECIPIENT+=('smtpd_helo_required=yes')
 # Postfwd
 declare -g -r POSTFWD_ACCESS='check_policy_service inet:127.0.0.1:10040'
 
-declare -g -r POSTFIX_POSTFWD_LABEL='Postfwd'
+declare -g -r POSTFIX_POSTFWD_LABEL='Postfwd3'
 declare -g -r POSTFIX_POSTFWD_CHECK=1
 declare -g -r POSTFIX_POSTFWD_CUSTOM=1
 
@@ -306,7 +364,7 @@ POSTFIX_PLUGIN+=('dkim')
 POSTFIX_PLUGIN+=('spf')
 
 # Postfwd
-declare -g -r LABEL_CONFIG_PLUGIN_POSTFWD='Postfwd'
+declare -g -r LABEL_CONFIG_PLUGIN_POSTFWD='Postfwd3'
 declare -g -r CONFIG_PLUGIN_POSTFWD='/etc/postfix/postfwd.cf'
 
 # OpenDKIM
@@ -485,6 +543,35 @@ declare -g -r LABEL_CONFIG_FAIL2BAN_ACTION='Action'
 declare -g -r CONFIG_FAIL2BAN_ACTION="$DIR_CONFIG_FAIL2BAN/action.d/"
 
 ###################################################################################################
+# Text Editors
+declare -g -a TEXT_EDITORS
+
+TEXT_EDITORS=()
+TEXT_EDITORS+=("$DEFAULT_EDITOR")
+TEXT_EDITORS+=('nano')
+TEXT_EDITORS+=('pico')
+
+###################################################################################################
+# Email addresses
+declare -g -a EMAIL_ADDRESSES
+
+EMAIL_ADDRESSES=()
+EMAIL_ADDRESSES+=('update')
+EMAIL_ADDRESSES+=('logwatch')
+EMAIL_ADDRESSES+=('reboot')
+
+# Automatic update
+LABEL_EMAIL_UPDATE='Automatic update'
+
+# Logwatch
+LABEL_EMAIL_LOGWATCH='Logwatch'
+EMAIL_LOGWATCH_CHECK=1
+
+# Reboot alert
+LABEL_EMAIL_REBOOT='Reboot alert'
+EMAIL_REBOOT_CHECK=1
+
+###################################################################################################
 # Help
 declare -g -r HELP_MAIN='NetCon Postfix Made Easy
 
@@ -506,7 +593,7 @@ Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 
 declare -g -r HELP_INSTALL_FEATURE='Select feature to install.
 
-* Postfwd - Install Postfwd
+* Postfwd3 - Install Postfwd3
 * Spamassassin - Install Spamassassin
 * Rspamd - Install Rspamd
 * Pyzor - Install Pyzor
@@ -530,7 +617,7 @@ declare -g -r HELP_POSTFIX_FEATURE='Select Postfix features to enable.
 * Postscreen - Enable blocking based on reputation black-/whitelist
 * Postscreen Deep - Enable additional checks
 * Recipient restrictions - Enable various recipient restrictions
-* Postfwd (if installed) - Enable Postfwd
+* Postfwd3 (if installed) - Enable Postfwd3
 * Spamassassin (if installed) - Enable Spamassassin
 * Rspamd (if installed) - Enable Rspamd
 * SPF-check (if installed) - Enable SPF-check'
@@ -579,6 +666,10 @@ declare -g -r HELP_OTHER_INFO='Show other info and stats.
 * Firewall rules - Show currently active firewall rules'
 
 ###################################################################################################
+# Menu settings
+declare -g TXT_EDITOR="$DEFAULT_EDITOR"
+
+###################################################################################################
 # pause and ask for keypress
 # parameters:
 # none
@@ -621,7 +712,7 @@ show_help() {
 # parameters:
 # $1 - dialog title
 # $2 - message
-# $3 - default
+# $3 - default input
 # return values:
 # stdout - user input
 # error code - 0 for Ok, 1 for Cancel
@@ -661,13 +752,49 @@ get_file() {
     return "$RET_CODE"
 }
 
+# get yes/no decision
+# parameters:
+# $1 - question
+# return values:
+# error code - 0 for Yes, 1 for No
+get_yesno() {
+    "$DIALOG" --clear --backtitle "$TITLE_MAIN" --title '' --yesno "$2" 0 0
+}
+
+# toggle setting
+# parameters:
+# $1 - setting keyword
+# $2 - setting label
+# return values:
+# none
+toggle_setting() {
+    declare SETTING_STATUS MESSAGE
+    
+    MESSAGE="$2 is currently "
+
+    "$1_status"
+    SETTING_STATUS="$?"
+
+    [ "$SETTING_STATUS" = 0 ] && MESSAGE+='enabled. Disable?' || MESSAGE+='disabled. Enable?'
+
+    get_yesno "$MESSAGE"
+
+    if [ "$?" = 0 ]; then
+        if [ "$SETTING_STATUS" = 0 ]; then
+            "$1_disable"
+        else
+            "$1_enable"
+        fi
+    fi  
+}
+
 # check whether Postfwd is installed
 # parameters:
 # none
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_postfwd() {
-    which postfwd &>/dev/null
+    which /usr/local/postfwd/sbin/postfwd &>/dev/null
     [ "$?" = 0 ] && return 0 || return 1
 }
 
@@ -697,7 +824,6 @@ check_installed_rspamd() {
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_pyzor() {
-    check_ubuntu || return 1
     which pyzor &>/dev/null
     [ "$?" = 0 ] && return 0 || return 1
 }
@@ -708,7 +834,6 @@ check_installed_pyzor() {
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_razor() {
-    check_ubuntu || return 1
     which razor-check &>/dev/null
     [ "$?" = 0 ] && return 0 || return 1
 }
@@ -743,6 +868,16 @@ check_installed_spf() {
     [ "$?" = 0 ] && return 0 || return 1
 }
 
+# check whether Logwatch is installed
+# parameters:
+# none
+# return values:
+# error code - 0 for installed, 1 for not installed
+check_installed_logwatch() {
+    which logwatch &>/dev/null
+    [ "$?" = 0 ] && return 0 || return 1
+}
+
 # check whether log-manager is installed
 # parameters:
 # none
@@ -750,6 +885,19 @@ check_installed_spf() {
 # error code - 0 for installed, 1 for not installed
 check_installed_logmanager() {
     [ -f "$CRON_LOGMANAGER" ] && return 0 || return 1
+}
+
+# check whether reboot alert is installed
+# parameters:
+# none
+# return values:
+# error code - 0 for installed, 1 for not installed
+check_installed_reboot() {
+    if [ -f "$SCRIPT_REBOOT" ] && crontab -l | grep -q "$CRONTAB_REBOOT"; then
+        return 0
+    else
+        return 1
+    fi
 }
 
 # check whether peer is available
@@ -782,6 +930,24 @@ check_installed_daemonize() {
 # error code - 0 for peer available, 1 for not available
 check_installed_plugin() {
     check_installed_postfwd || check_installed_dkim || check_installed_spf
+}
+
+# check Postfwd version
+# parameters:
+# none
+# return values:
+# stdout - version number
+check_version_postfwd() {
+    /usr/local/postfwd/sbin/postfwd --version | awk '{print $2}'
+}
+
+# check for update of Postfwd
+# parameters:
+# none
+# return values:
+# stdout - version number of update
+check_update_postfwd() {
+    wget "$INSTALL_POSTFWD_LINK" -O - 2>/dev/null | grep '^our $VERSION' | awk 'match($0, /= "([^"]+)";/, a) {print a[1]}'
 }
 
 ###################################################################################################
@@ -940,6 +1106,37 @@ postscreen_disable() {
     postconf -MX 'smtpd/pass'
     postconf -MX 'dnsblog/unix'
     postconf -MX 'tlsproxy/unix'
+}
+
+# check Submission status
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 for disabled
+submission_status() {
+    if postconf -M 'submission/inet' 2>/dev/null | grep -q -E '^submission\s+inet\s+n\s+-\s+n\s+-\s+-\s+smtpd\s+-o\s+message_size_limit=\s+-o\s+smtpd_milters=\s+-o\s+smtpd_recipient_restrictions=$'; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# enable Submission
+# parameters:
+# none
+# return values:
+# none
+submission_enable() {
+    postconf -Me 'submission/inet=submission inet n - n - - smtpd -o message_size_limit= -o smtpd_milters= -o smtpd_recipient_restrictions='
+}
+
+# disable Submission
+# parameters:
+# none
+# return values:
+# none
+submission_disable() {
+    postconf -MX 'submission/inet'
 }
 
 # check recipient restrictions status
@@ -1102,7 +1299,7 @@ postfwd_disable() {
 # return values:
 # error code - 0 for enabled, 1 for disabled
 spamassassin_status() {
-    if postconf -M 'smtpd/pass' 2>/dev/null | grep -q -E '^smtpd\s+pass\s+-\s+-\s+y\s+-\s+-\s+smtpd\s+ -o\s+ content_filter=spamassassin$'                                                                                                              \
+    if postconf -M 'smtpd/pass' 2>/dev/null | grep -q -E '^smtpd\s+pass\s+-\s+-\s+y\s+-\s+-\s+smtpd\s+-o\s+content_filter=spamassassin$'                                                                                                              \
         && postconf -M 'spamassassin/unix' 2>/dev/null | grep -q -E '^spamassassin\s+unix\s+-\s+n\s+n\s+-\s+-\s+pipe\s+user=spamd\s+argv=/usr/bin/spamc\s+-s\s+1024000\s+-f\s+-e\s+/usr/sbin/sendmail\s+-oi\s+-f\s+\${sender}\s+\${recipient}$'; then
         return 0
     else
@@ -1411,7 +1608,7 @@ postfix_config() {
         MENU_POSTFIX_CONFIG+=("$CONFIG" "$(eval echo \"\$LABEL_CONFIG_POSTFIX_${CONFIG^^}\")")
     done
 
-    check_installed_peer && MENU_POSTFIX_CONFIG+=("$TAG_SYNC" 'Sync Postfix config')
+    check_installed_peer && MENU_POSTFIX_CONFIG+=("$TAG_SYNC" 'Sync config')
 
     while true; do
         exec 3>&1
@@ -1488,11 +1685,11 @@ postfix_plugin() {
         check_installed_${PLUGIN} && MENU_POSTFIX_PLUGIN+=("$PLUGIN" "$(eval echo \"\$LABEL_CONFIG_PLUGIN_${PLUGIN^^}\")")
     done
 
-    check_installed_peer && MENU_POSTFIX_PLUGIN+=("$TAG_SYNC" 'Sync Postfix plugin config')
+    check_installed_peer && MENU_POSTFIX_PLUGIN+=("$TAG_SYNC" 'Sync config')
 
     while true; do
         exec 3>&1
-        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Select' --no-tags --extra-button --extra-label 'Help' --menu 'Choose Postfix config to edit' 0 0 0 "${MENU_POSTFIX_PLUGIN[@]}" 2>&1 1>&3)"
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Select' --no-tags --extra-button --extra-label 'Help' --menu 'Choose Postfix plugin config to edit' 0 0 0 "${MENU_POSTFIX_PLUGIN[@]}" 2>&1 1>&3)"
         RET_CODE="$?"
         exec 3>&-
 
@@ -1565,6 +1762,7 @@ search_log() {
     DIALOG_RET="$($DIALOG --clear --backtitle "$TITLE_MAIN" --inputbox 'Enter search string' 0 0 2>&1 1>&3)"
     RET_CODE=$?
     exec 3>&-
+
     if [ $RET_CODE = 0 ]; then
         INFO="$(grep -i -e "$DIALOG_RET" $DIR_LOG_POSTFIX/$1.log)"
 
@@ -2162,7 +2360,7 @@ rspamd_config() {
         MENU_RSPAMD_CONFIG+=("$CONFIG" "$(eval echo \"\$LABEL_CONFIG_RSPAMD_${CONFIG^^}\")")
     done
 
-    check_installed_peer && MENU_RSPAMD_CONFIG+=("$TAG_SYNC" 'Sync Rspamd config')
+    check_installed_peer && MENU_RSPAMD_CONFIG+=("$TAG_SYNC" 'Sync config')
 
     while true; do
         exec 3>&1
@@ -2201,6 +2399,17 @@ rspamd_config() {
     done
 }
 
+# show Rspamd info & stats
+# parameters:
+# none
+# return values:
+# none
+rspamd_info() {
+    declare -r INFO="$(rspamc stat)"
+ 
+    show_info 'Rspamd info & stats' "$INFO"
+}
+
 # sync Spamassassin config with other peer
 # parameters:
 # none
@@ -2229,7 +2438,7 @@ spamassassin_config() {
         MENU_SPAMASSASSIN_CONFIG+=("$CONFIG" "$(eval echo \"\$LABEL_CONFIG_SPAMASSASSIN_${CONFIG^^}\")")
     done
 
-    check_installed_peer && MENU_SPAMASSASSIN_CONFIG+=("$TAG_SYNC" 'Sync Spamassassin config')
+    check_installed_peer && MENU_SPAMASSASSIN_CONFIG+=("$TAG_SYNC" 'Sync config')
 
     while true; do
         exec 3>&1
@@ -2363,7 +2572,7 @@ fail2ban_config() {
         MENU_FAIL2BAN_CONFIG+=("$CONFIG" "$(eval echo \"\$LABEL_CONFIG_FAIL2BAN_${CONFIG^^}\")")
     done
 
-    check_installed_peer && MENU_FAIL2BAN_CONFIG+=("$TAG_SYNC" 'Sync Fail2ban config')
+    check_installed_peer && MENU_FAIL2BAN_CONFIG+=("$TAG_SYNC" 'Sync config')
 
     while true; do
         exec 3>&1
@@ -2415,6 +2624,104 @@ fail2ban_config() {
     done
 }
 
+# add IP addresses to jail
+# parameters:
+# $1 - jail name
+# return values:
+# none
+fail2ban_ban() {
+    declare IP_ADDRESS RET_CODE
+
+    exec 3>&1
+    IP_ADDRESS="$(get_input 'Fail2ban' 'Enter IP address to ban')" 
+    RET_CODE="$?"
+    exec 3>&-
+
+    if [ "$RET_CODE" = 0 ]; then
+        fail2ban-client set "$1" banip "$IP_ADDRESS" &>/dev/null
+        sleep 1
+    fi
+}
+
+# show banned IPs for given Fail2ban jail with option to unban in dialog menu
+# parameters:
+# $1 - jail name
+# return values:
+# none
+fail2ban_banned() {
+    declare -a MENU_FAIL2BAN_BANNED
+    declare -r LABEL_BANNED_NONE='No banned IPs'
+    declare LIST_BANNED RET_CODE DIALOG_RET
+
+    while true; do
+        LIST_BANNED="$(fail2ban-client status "$1" | grep '^   `\- Banned IP list:' | sed -E 's/^   `\- Banned IP list:\s+//' | xargs -n1 | sort)"
+
+        if [ -z "$LIST_BANNED" ]; then
+            "$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Ban' --no-tags --menu 'Choose IP address to unban' 0 0 0 '' "$LABEL_BANNED_NONE"
+
+            if [ "$?" = 0 ]; then
+                fail2ban_ban "$1"
+            else
+                break
+            fi
+        else
+            MENU_FAIL2BAN_BANNED=()
+
+            for IP_ADDRESS in $LIST_BANNED; do
+                MENU_FAIL2BAN_BANNED+=("$IP_ADDRESS" "$IP_ADDRESS")
+            done
+
+            exec 3>&1
+            DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Unban' --extra-button --extra-label 'Ban' --no-tags --menu 'Choose IP address to unban' 0 0 0 "${MENU_FAIL2BAN_BANNED[@]}" 2>&1 1>&3)"
+            RET_CODE="$?"
+            exec 3>&-
+
+            if [ "$RET_CODE" = 0 ]; then
+                if ! [ -z "$DIALOG_RET" ]; then
+                    fail2ban-client set "$1" unbanip "$DIALOG_RET" &>/dev/null
+                    sleep 1
+                fi
+            elif [ "$RET_CODE" = 3 ]; then
+                fail2ban_ban "$1"
+            else
+                break
+            fi
+        fi
+    done
+}
+
+# select Fail2ban jail in dialog menu
+# parameters:
+# none
+# return values:
+# none
+fail2ban_jail() {
+    declare -r LIST_JAIL="$(fail2ban-client status | grep '^`- Jail list:' | sed -E 's/^`- Jail list:\s+//' | sed 's/,//g')"
+    declare -r LABEL_JAIL_NONE='No jails configured'
+    declare -a MENU_FAIL2BAN_JAIL
+    declare DIALOG_RET RET_CODE
+
+    MENU_FAIL2BAN_JAIL=()
+    if [ -z "$LIST_JAIL" ]; then
+        "$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-ok --no-tags --menu 'Choose Fail2ban jail' 0 0 0 '' "$LABEL_JAIL_NONE"
+
+        break
+    else
+        for NAME_JAIL in $LIST_JAIL; do
+            MENU_FAIL2BAN_JAIL+=("$NAME_JAIL" "$NAME_JAIL")
+        done
+
+        exec 3>&1
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Select' --no-tags --menu 'Choose Fail2ban jail' 0 0 0 "${MENU_FAIL2BAN_JAIL[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ] && ! [ -z "$DIALOG_RET" ]; then
+            fail2ban_banned "$DIALOG_RET"
+        fi
+    fi
+}
+
 # show network connection
 # parameters:
 # none
@@ -2437,18 +2744,42 @@ show_firewall() {
     show_info 'Firewall rules' "$INFO"
 }
 
-# select other info to show in dialog menu
+# show install log
 # parameters:
 # none
 # return values:
 # none
-other_info() {
+show_install() {
+    declare -r INFO="$(cat /var/log/apt/history.log)"
+
+    show_info 'Install log' "$INFO"
+}
+
+# show pending updates
+# parameters:
+# none
+# return values:
+# none
+show_update() {
+    declare -r INFO="$(apt list --upgradable 2>/dev/null | grep 'upgradable' | awk 'match($0, /([^/]+)\S+ (\S+)/, a) {print a[1]" ("a[2]")"}')"
+
+    show_info 'Pending updates' "$INFO"
+}
+
+# select system info to show in dialog menu
+# parameters:
+# none
+# return values:
+# none
+system_info() {
     declare -a MENU_OTHER_INFO
     declare DIALOG_RET RET_CODE
 
     MENU_OTHER_INFO=()
     MENU_OTHER_INFO+=('connections' 'Network connections')
     MENU_OTHER_INFO+=('firewall' 'Firewall rules')
+    MENU_OTHER_INFO+=('install' 'Install log')
+    MENU_OTHER_INFO+=('update' 'Pending updates')
 
     while true; do
         exec 3>&1
@@ -2475,6 +2806,230 @@ check_ubuntu() {
     cat /proc/version | grep -q 'Ubuntu'
 }
 
+# set setting
+# parameters:
+# $1 - setting
+# return values:
+# none
+set_menu_setting() {
+    sed -i -E "s/(declare -g $(echo "$1" | awk -F= '{print $1}')=)\S+/\1$(echo "$1" | awk -F= '{print $2}')/" "$0"
+    eval "$1"
+}
+
+# select editor in dialog menu
+# parameters:
+# none
+# return values:
+# none
+text_editor() {
+    declare -a MENU_EDITOR
+
+    for EDITOR in "${TEXT_EDITORS[@]}"; do
+        which "$EDITOR" &>/dev/null && MENU_EDITOR+=("$EDITOR" "$EDITOR")
+    done
+
+    exec 3>&1
+    DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu 'Select text editor' 0 0 0 "${MENU_EDITOR[@]}" 2>&1 1>&3)"
+    RET_CODE="$?"
+    exec 3>&-
+
+    if [ "$RET_CODE" = 0 ]; then
+        set_menu_setting "TXT_EDITOR='$DIALOG_RET'"
+    elif [ "$RET_CODE" = 3 ]; then
+        show_help "$HELP_TEXT_EDITOR"
+    fi
+}
+
+# get update email address
+# parameters:
+# none
+# return values:
+# stdout - update email address
+get_email_update() {
+    grep -E '^Unattended-Upgrade::Mail "\S+";$' "$CONFIG_UPDATE" | awk 'match($0, /^Unattended-Upgrade::Mail "([^"]+)";$/, a) {print a[1]}'
+}
+
+# set update email address
+# parameters:
+# $1 - update email address
+# return values:
+# none
+set_email_update() {
+    sed -E -i "s/^Unattended-Upgrade::Mail \"[^\"]+\";$/Unattended-Upgrade::Mail \"$1\";/" "$CONFIG_UPDATE"
+}
+
+# get logwatch email address
+# parameters:
+# none
+# return values:
+# stdout - logwatch email address
+get_email_logwatch() {
+    grep -E '^MailTo="[^"]+"$' "$CONFIG_LOGWATCH" | awk 'match($0, /^MailTo="([^"]+)"$/, a) {print a[1]}'
+}
+
+# set logwatch email address
+# parameters:
+# $1 - logwatch email address
+# return values:
+# none
+set_email_logwatch() {
+    sed -E -i "s/^MailTo=\"[^\"]+\"$/MailTo=\"$1\"/" "$CONFIG_LOGWATCH"
+}
+
+# get reboot email address
+# parameters:
+# none
+# return values:
+# stdout - reboot email address
+get_email_reboot() {
+    grep -E 'mail -s' "$SCRIPT_REBOOT" | awk 'match($0, / (\S+)$/, a) {print a[1]}'
+}
+
+# set reboot email address
+# parameters:
+# $1 - reboot email address
+# return values:
+# none
+set_email_reboot() {
+    sed -E -i "s/ \S+$/ $1/" "$SCRIPT_REBOOT"
+}
+
+# configure email addresses in dialog menu
+# parameters:
+# none
+# return values:
+# none
+email_addresses() {
+    declare DIALOG_RET RET_CODE EMAIL_ADDRESS EMAIL_CURRENT
+    declare -a MENU_EMAIL
+
+    while true; do
+        MENU_EMAIL=()
+
+        for EMAIL_ADDRESS in "${EMAIL_ADDRESSES[@]}"; do
+            if [ "$(eval echo \"\$EMAIL_${EMAIL_ADDRESS^^}_CHECK\")" != 1 ] || "check_installed_$EMAIL_ADDRESS"; then
+                MENU_EMAIL+=("$EMAIL_ADDRESS" "$(eval echo \"\$LABEL_EMAIL_${EMAIL_ADDRESS^^}\") ($(get_email_$EMAIL_ADDRESS))")
+            fi
+        done
+
+        exec 3>&1
+        DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu 'Configure email address' 0 0 0 "${MENU_EMAIL[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            EMAIL_CURRENT="$(get_email_$DIALOG_RET)"
+
+            exec 3>&1
+            EMAIL_ADDRESS="$(get_input 'Email address' 'Enter email address' "$EMAIL_CURRENT")"
+            RET_CODE="$?"
+            exec 3>&-
+
+            if [ "$RET_CODE" = 0 ] && ! [ -z "$EMAIL_ADDRESS" ] && [ "$EMAIL_ADDRESS" != "$EMAIL_CURRENT" ]; then
+                "set_email_$DIALOG_RET" "$EMAIL_ADDRESS"
+            fi
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_EMAIL_ADDRESSES"
+        else
+            break
+        fi
+    done
+}
+
+# check automatic update status
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 disabled
+automatic_update_status() {
+    declare OPTION
+
+    for OPTION in                                                               \
+        'APT::Periodic::Update-Package-Lists "1";'                              \
+        'APT::Periodic::Download-Upgradeable-Packages "1";'                     \
+        'APT::Periodic::AutocleanInterval "7";'                                 \
+        'APT::Periodic::Unattended-Upgrade "1";'; do
+        if ! [ -f "$CONFIG_UPDATE" ] || ! grep -q "^$OPTION$" "$CONFIG_UPDATE"; then
+            return 1
+        fi
+    done    
+}
+
+# enable automatic update
+# parameters:
+# none
+# return values:
+# none
+automatic_update_enable() {
+    declare OPTION
+
+    for OPTION in                                                               \
+        'APT::Periodic::Update-Package-Lists "1";'                              \
+        'APT::Periodic::Download-Upgradeable-Packages "1";'                     \
+        'APT::Periodic::AutocleanInterval "7";'                                 \
+        'APT::Periodic::Unattended-Upgrade "1";'; do
+        if ! [ -f "$CONFIG_UPDATE" ] || ! grep -q "^$OPTION$" "$CONFIG_UPDATE"; then
+            echo "$OPTION" >> "$CONFIG_UPDATE"
+        fi
+    done
+}
+
+# disable automatic update
+# parameters:
+# none
+# return values:
+# none
+automatic_update_disable() {
+    declare OPTION
+
+    for OPTION in                                                               \
+        'APT::Periodic::Update-Package-Lists "1";'                              \
+        'APT::Periodic::Download-Upgradeable-Packages "1";'                     \
+        'APT::Periodic::AutocleanInterval "7";'                                 \
+        'APT::Periodic::Unattended-Upgrade "1";'; do
+        sed -i "/^$OPTION$/d" "$CONFIG_UPDATE"
+    done
+}
+
+# select general setting in dialog menu
+# parameters:
+# none
+# return values:
+# none
+general_settings() {
+    declare -r TAG_EDITOR='text_editor'
+    declare -r TAG_EMAIL='email_addresses'
+    declare -r TAG_UPDATES='automatic_update'
+    declare -r LABEL_EDITOR='Text editor'
+    declare -r LABEL_EMAIL='Email addresses'
+    declare -r LABEL_UPDATES='Automatic update'
+    declare -a MENU_GENERAL
+
+    while true; do
+        MENU_GENERAL=()
+        MENU_GENERAL+=("$TAG_EDITOR" "$LABEL_EDITOR")
+        MENU_GENERAL+=("$TAG_EMAIL" "$LABEL_EMAIL")
+        automatic_update_status && MENU_GENERAL+=("$TAG_UPDATES" "$LABEL_UPDATES (enabled)") || MENU_GENERAL+=("$TAG_UPDATES" "$LABEL_UPDATES (disabled)")
+
+        exec 3>&1
+        DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu '' 0 0 0 "${MENU_GENERAL[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+        if [ "$RET_CODE" = 0 ]; then
+            case "$DIALOG_RET" in
+                "$TAG_UPDATES")
+                    toggle_setting 'automatic_update' 'Automatic update';;
+                *)
+                    "$DIALOG_RET";;
+            esac
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_GENERAL_SETTINGS"
+        else
+            break
+        fi
+    done
+}
+
 # install Postfwd
 # parameters:
 # none
@@ -2485,14 +3040,16 @@ install_postfwd() {
 
     show_wait
 
-    groupadd "$POSTFWD_USER"
-    useradd -g "$POSTFWD_USER" "$POSTFWD_USER"
+    groupadd "$POSTFWD_USER" &>/dev/null
+    useradd -g "$POSTFWD_USER" "$POSTFWD_USER" &>/dev/null
 
     mkdir -p /usr/local/postfwd/sbin
-    wget https://raw.githubusercontent.com/postfwd/postfwd/master/sbin/postfwd3 -O - 2>/dev/null > /usr/local/postfwd/sbin/postfwd
+    wget "$INSTALL_POSTFWD_LINK" -O - 2>/dev/null > /usr/local/postfwd/sbin/postfwd
     chmod +x /usr/local/postfwd/sbin/postfwd
     wget https://raw.githubusercontent.com/postfwd/postfwd/master/bin/postfwd-script.sh -O - 2>/dev/null | sed "s/nobody/$POSTFWD_USER/" > /etc/init.d/postfwd
     chmod +x /etc/init.d/postfwd
+
+    apt install -y libnet-server-perl &>/dev/null
 
     systemctl daemon-reload
     systemctl start postfwd
@@ -2575,7 +3132,17 @@ install_spf() {
     apt install -y postfix-policyd-spf-python &>/dev/null
 }
 
-# install log manager
+# install Logwatch
+# parameters:
+# none
+# return values:
+# none
+install_logwatch() {
+    show_wait
+    apt install -y logwatch &>/dev/null
+}
+
+# install log-manager
 # parameters:
 # none
 # return values:
@@ -2618,6 +3185,26 @@ install_logmanager() {
     printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$CRON_LOGMANAGER"
     chmod 700 "$CRON_LOGMANAGER"
     "$CRON_LOGMANAGER"
+}
+
+# install reboot alert
+# parameters:
+# none
+# return values:
+# none
+install_reboot() {
+    declare -r PACKED_SCRIPT='
+    H4sIABqv+F0AA1NW1E/KzNMvzuBKTc7IV1BPzEksylVIK8rPVYiP9/APDon3c/R1jY9XV6hRyE3M
+    zFHQLVZQD64sLknNVShKTcrPL1HIz0NXWgQU5gIA+EhgLFoAAAA=
+    '
+    declare CRONTAB_CURRENT
+
+    mkdir -p "$(dirname "$SCRIPT_REBOOT")"
+    printf '%s' $PACKED_SCRIPT | base64 -d | gunzip | sed "s/__HOST_NAME__/$(hostname -f)/g" > "$SCRIPT_REBOOT"
+
+    CRONTAB_CURRENT="$(crontab -l)"
+
+    echo "$CRONTAB_CURRENT" | grep -q "$CRONTAB_REBOOT" || echo "$CRONTAB_CURRENT"$'\n'"$CRONTAB_REBOOT" | crontab -
 }
 
 # setup peer
@@ -2687,24 +3274,257 @@ sync_all() {
 # none
 # return values:
 # none
-install_feature() {
+menu_install() {
     declare -a MENU_INSTALL
+    declare NAME_PACKAGE PACKAGE_INFO 
 
     while true; do
         MENU_INSTALL=()
 
         for FEATURE in "${INSTALL_FEATURE[@]}"; do
-            "check_installed_${FEATURE}" && MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") (installed)") || MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\")")
+            if "check_installed_${FEATURE}"; then
+                NAME_PACKAGE="$(eval echo \"\$INSTALL_${FEATURE^^}_PACKAGE\")"
+
+                if [ -z "$NAME_PACKAGE" ]; then
+                    if [ "$(eval echo \"\$INSTALL_${FEATURE^^}_CUSTOM\")" = 1 ]; then
+                        VERSION_CURRENT="$(check_version_$FEATURE)"
+                        VERSION_AVAILABLE="$(check_update_$FEATURE)"
+
+                        if [ "$VERSION_CURRENT" = "$VERSION_AVAILABLE" ]; then
+                            MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed)")
+                        else
+                            MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed, $VERSION_AVAILABLE available)")
+                        fi
+                    else
+                        MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") (installed)")
+                    fi
+                else
+                    PACKAGE_INFO="$(apt-cache policy "$NAME_PACKAGE")"
+                    VERSION_CURRENT="$(echo "$PACKAGE_INFO" | sed -n '2p' | sed -E 's/^.+\s+//')"
+                    VERSION_AVAILABLE="$(echo "$PACKAGE_INFO" | sed -n '3p' | sed -E 's/^.+\s+//')"
+
+                    if [ "$VERSION_CURRENT" = "$VERSION_AVAILABLE" ]; then
+                        MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed)")
+                    else
+                        MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed, $VERSION_AVAILABLE available)")
+                    fi
+                fi
+            else
+                MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\")")
+            fi
         done
 
         exec 3>&1
         DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu '' 0 0 0 "${MENU_INSTALL[@]}" 2>&1 1>&3)"
         RET_CODE="$?"
         exec 3>&-
+
         if [ "$RET_CODE" = 0 ]; then
-            "install_${DIALOG_RET}"
+            if "check_installed_${FEATURE}"; then
+                NAME_PACKAGE="$(eval echo \"\$INSTALL_${FEATURE^^}_PACKAGE\")"
+
+                if [ -z "$NAME_PACKAGE" ]; then
+                    get_yesno 'Already installed. Re-install?'
+
+                    [ "$?" = 0 ] && "install_${DIALOG_RET}"
+                else
+                    PACKAGE_INFO="$(apt-cache policy "$NAME_PACKAGE")"
+                    VERSION_CURRENT="$(echo "$PACKAGE_INFO" | sed -n '2p' | sed -E 's/^.+\s+//')"
+                    VERSION_AVAILABLE="$(echo "$PACKAGE_INFO" | sed -n '3p' | sed -E 's/^.+\s+//')"
+
+                    if [ "$VERSION_CURRENT" = "$VERSION_AVAILABLE" ]; then
+                        get_yesno 'Already installed. Re-install?'
+
+                        [ "$?" = 0 ] && "install_${DIALOG_RET}"
+                    else                        
+                        get_yesno 'Install update?'
+
+                        if [ "$?" = 0 ]; then
+                            show_wait
+
+                            apt update "$NAME_PACKAGE" &>/dev/null
+                        fi
+                    fi
+                fi
+            else
+                get_yesno 'Install?'
+
+                [ "$?" = 0 ] && "install_${DIALOG_RET}"
+            fi
         elif [ "$RET_CODE" = 3 ]; then
             show_help "$HELP_INSTALL_FEATURE"
+        else
+            break
+        fi
+    done
+}
+
+# select Postfix option in dialog menu
+# parameters:
+# none
+# return values:
+# none
+menu_postfix() {
+    declare -r TAG_FEATURE='postfix_feature'
+    declare -r TAG_CONFIG='postfix_config'
+    declare -r TAG_PLUGIN='postfix_plugin'
+    declare -r TAG_INFO='postfix_info'
+    declare -r LABEL_FEATURE='Feature'
+    declare -r LABEL_CONFIG='Maps'
+    declare -r LABEL_PLUGIN='Plugin config'
+    declare -r LABEL_INFO='Info & Stats'
+    declare -a MENU_POSTFIX
+
+    MENU_POSTFIX=()
+    MENU_POSTFIX+=("$TAG_FEATURE" "$LABEL_FEATURE")
+    MENU_POSTFIX+=("$TAG_CONFIG" "$LABEL_CONFIG")
+    MENU_POSTFIX+=("$TAG_PLUGIN" "$LABEL_PLUGIN")
+    MENU_POSTFIX+=("$TAG_INFO" "$LABEL_INFO")
+
+    while true; do
+        exec 3>&1
+        DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu '' 0 0 0 "${MENU_POSTFIX[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            "$DIALOG_RET"
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_POSTFIX"
+        else
+            break
+        fi
+    done
+}
+
+# select Spamassassin option in dialog menu
+# parameters:
+# none
+# return values:
+# none
+menu_spamassassin() {
+    declare -r TAG_FEATURE='spamassassin_feature'
+    declare -r TAG_CONFIG='spamassassin_config'
+    declare -r TAG_INFO='spamassassin_info'
+    declare -r LABEL_FEATURE='Feature'
+    declare -r LABEL_CONFIG='Config'
+    declare -r LABEL_INFO='Info & Stats'
+    declare -a MENU_SPAMASSASSIN
+
+    MENU_SPAMASSASSIN=()
+    MENU_SPAMASSASSIN+=("$TAG_FEATURE" "$LABEL_FEATURE")
+    MENU_SPAMASSASSIN+=("$TAG_CONFIG" "$LABEL_CONFIG")
+    MENU_SPAMASSASSIN+=("$TAG_INFO" "$LABEL_INFO")
+
+    while true; do
+        exec 3>&1
+        DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu '' 0 0 0 "${MENU_SPAMASSASSIN[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            "$DIALOG_RET"
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_SPAMASSASSIN"
+        else
+            break
+        fi
+    done
+}
+
+# select Rspamd option in dialog menu
+# parameters:
+# none
+# return values:
+# none
+menu_rspamd() {
+    declare -r TAG_FEATURE='rspamd_feature'
+    declare -r TAG_CONFIG='rspamd_config'
+    declare -r TAG_INFO='rspamd_info'
+    declare -r LABEL_FEATURE='Feature'
+    declare -r LABEL_CONFIG='Config'
+    declare -r LABEL_INFO='Info & Stats'
+    declare -a MENU_RSPAMD
+
+    MENU_RSPAMD=()
+    MENU_RSPAMD+=("$TAG_FEATURE" "$LABEL_FEATURE")
+    MENU_RSPAMD+=("$TAG_CONFIG" "$LABEL_CONFIG")
+    MENU_RSPAMD+=("$TAG_INFO" "$LABEL_INFO")
+
+    while true; do
+        exec 3>&1
+        DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu '' 0 0 0 "${MENU_RSPAMD[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            "$DIALOG_RET"
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_RSPAMD"
+        else
+            break
+        fi
+    done
+}
+
+# select Fail2ban option in dialog menu
+# parameters:
+# none
+# return values:
+# none
+menu_fail2ban() {
+    declare -r TAG_CONFIG='fail2ban_config'
+    declare -r TAG_JAIL='fail2ban_jail'
+    declare -r LABEL_CONFIG='Config'
+    declare -r LABEL_JAIL='Jails'
+    declare -a MENU_FAIL2BAN
+
+    MENU_FAIL2BAN=()
+    MENU_FAIL2BAN+=("$TAG_CONFIG" "$LABEL_CONFIG")
+    MENU_FAIL2BAN+=("$TAG_JAIL" "$LABEL_JAIL")
+
+    while true; do
+        exec 3>&1
+        DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu '' 0 0 0 "${MENU_FAIL2BAN[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            "$DIALOG_RET"
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_FAIL2BAN"
+        else
+            break
+        fi
+    done
+}
+
+# select miscellaneous options in dialog menu
+# parameters:
+# none
+# return values:
+# none
+menu_misc() {
+    declare -r TAG_GENERAL_SETTINGS='general_settings'
+    declare -r TAG_SYSTEM_INFO='system_info'
+    declare -r LABEL_GENERAL_SETTINGS='General settings'
+    declare -r LABEL_SYSTEM_INFO='System info'
+    declare -a MENU_MISC
+
+    MENU_MISC=()
+    MENU_MISC+=("$TAG_GENERAL_SETTINGS" "$LABEL_GENERAL_SETTINGS")
+    MENU_MISC+=("$TAG_SYSTEM_INFO" "$LABEL_SYSTEM_INFO")
+
+    while true; do
+        exec 3>&1
+        DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu '' 0 0 0 "${MENU_MISC[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            "$DIALOG_RET"
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_FAIL2BAN"
         else
             break
         fi
@@ -2718,7 +3538,7 @@ install_feature() {
 # none
 check_update() {
     declare -r TMP_UPDATE='/tmp/TMPupdate'
-    declare VERSION MAJOR_DL MINOR_DL BUILD_DL MAJOR_CURRENT MINOR_CURRENT BUILD_CURRENT
+    declare VERSION MAJOR_DL MINOR_DL BUILD_DL MAJOR_CURRENT MINOR_CURRENT BUILD_CURRENT MENU_SETTINGS
 
     rm -f "$TMP_UPDATE"
     wget "$LINK_UPDATE" -O "$TMP_UPDATE" &>/dev/null
@@ -2732,15 +3552,25 @@ check_update() {
         MAJOR_CURRENT="$(echo "$VERSION" | awk -F. '{print $1}')"
         MINOR_CURRENT="$(echo "$VERSION" | awk -F. '{print $2}')"
         BUILD_CURRENT="$(echo "$VERSION" | awk -F. '{print $3}')"
+
         if [ "$MAJOR_DL" -gt "$MAJOR_CURRENT" ] ||
         ([ "$MAJOR_DL" = "$MAJOR_CURRENT" ] && [ "$MINOR_DL" -gt "$MINOR_CURRENT" ]) ||
         ([ "$MAJOR_DL" = "$MAJOR_CURRENT" ] && [ "$MINOR_DL" = "$MINOR_CURRENT" ] && [ "$BUILD_DL" -gt "$BUILD_CURRENT" ]); then
-            "$DIALOG" --clear --backtitle "$TITLE_MAIN" --yesno 'New update available. Install?' 0 0
+            get_yesno 'New update available. Install?'
+
             if [ "$?" = 0 ]; then
                 INFO_START=$(expr $(grep -n '# Changelog:' $TMP_UPDATE | head -1 | awk -F: '{print $1}') + 1)
                 INFO_END=$(expr $(grep -n '###################################################################################################' "$TMP_UPDATE" | head -2 | tail -1 | awk -F: '{print $1}') - 2)
                 INFO_TEXT="$(sed -n "$INFO_START,$INFO_END p" "$TMP_UPDATE" | sed 's/^#//g' | sed 's/^ //g')"
+
                 "$DIALOG" --clear --backtitle "$TITLE_MAIN" --title 'Changelog' --msgbox "$INFO_TEXT" 0 0
+
+                MENU_SETTINGS="$(sed -n '/^# Menu settings$/,/^###################################################################################################$/p' "$0" | head -n -2 | tail -n +2)"
+
+                while read SETTING; do
+                    sed -i -E "s/($(echo "$SETTING" | awk -F= '{print $1}')=)\S+/\1$(echo "$SETTING" | awk -F= '{print $2}')/" "$TMP_UPDATE"
+                done < <(echo "$MENU_SETTINGS")
+
                 mv -f "$TMP_UPDATE" "$0"
                 chmod +x "$0"
                 "$0"
@@ -2847,33 +3677,28 @@ write_examples() {
 # return values:
 # none
 declare -r CONFIG_BASH="$HOME/.bashrc"
-declare -r TAG_INSTALL_FEATURE='install_feature'
-declare -r TAG_POSTFIX_FEATURE='postfix_feature'
-declare -r TAG_POSTFIX_CONFIG='postfix_config'
-declare -r TAG_POSTFIX_PLUGIN='postfix_plugin'
-declare -r TAG_POSTFIX_INFO='postfix_info'
-declare -r TAG_SPAMASSASSIN_CONFIG='spamassassin_config'
-declare -r TAG_SPAMASSASSIN_INFO='spamassassin_info'
-declare -r TAG_RSPAMD_FEATURE='rspamd_feature'
-declare -r TAG_RSPAMD_CONFIG='rspamd_config'
-declare -r TAG_FAIL2BAN_CONFIG='fail2ban_config'
-declare -r TAG_OTHER_INFO='other_info'
-declare -r TAG_SYNC_ALL='sync_all'
-declare -r LABEL_SEPARATOR='====================='
-declare -r LABEL_INSTALL_FEATURE='Install feature'
-declare -r LABEL_POSTFIX_FEATURE='Postfix feature'
-declare -r LABEL_POSTFIX_CONFIG='Postfix config'
-declare -r LABEL_POSTFIX_PLUGIN='Postfix plugin config'
-declare -r LABEL_POSTFIX_INFO='Postfix info'
-declare -r LABEL_SPAMASSASSIN_CONFIG='Spamassassin config'
-declare -r LABEL_SPAMASSASSIN_INFO='Spamassassin info'
-declare -r LABEL_RSPAMD_FEATURE='Rspamd feature'
-declare -r LABEL_RSPAMD_CONFIG='Rspamd config'
-declare -r LABEL_FAIL2BAN_CONFIG='Fail2ban config'
-declare -r LABEL_OTHER_INFO='Other info'
+declare -r TAG_MENU_INSTALL='menu_install'
+declare -r TAG_MENU_POSTFIX='menu_postfix'
+declare -r TAG_MENU_SPAMASSASSIN='menu_spamassassin'
+declare -r TAG_MENU_RSPAMD='menu_rspamd'
+declare -r TAG_MENU_FAIL2BAN='menu_fail2ban'
+declare -r TAG_MENU_MISC='menu_misc'
+declare -r TAG_MENU_SYNC_ALL='sync_all'
+declare -r LABEL_MENU_INSTALL='Install'
+declare -r LABEL_MENU_POSTFIX='Postfix'
+declare -r LABEL_MENU_SPAMASSASSIN='Spamassassin'
+declare -r LABEL_MENU_RSPAMD='Rspamd'
+declare -r LABEL_MENU_FAIL2BAN='Fail2ban'
+declare -r LABEL_MENU_MISC='Misc'
 declare -r LABEL_SYNC_ALL='Sync all config'
 declare -a MENU_MAIN
 declare DIALOG_RET RET_CODE
+
+if ! check_ubuntu; then
+    show_info 'Incompatible Linux distro' 'This tool only supports Ubuntu 18.04 or later.'
+    clear
+    exit 1
+fi
 
 if ! [ -f "$CONFIG_BASH" ] || ! grep -q "alias menu=$HOME/menu.sh" "$CONFIG_BASH"; then
     echo "alias menu=$HOME/menu.sh" >> "$CONFIG_BASH"
@@ -2884,42 +3709,21 @@ write_examples
 
 while true; do
     MENU_MAIN=()
-    if check_ubuntu; then
-        MENU_MAIN+=("$TAG_INSTALL_FEATURE" "$LABEL_INSTALL_FEATURE")
-        MENU_MAIN+=('' "$LABEL_SEPARATOR")
-    fi
-    MENU_MAIN+=("$TAG_POSTFIX_FEATURE" "$LABEL_POSTFIX_FEATURE")
-    MENU_MAIN+=("$TAG_POSTFIX_CONFIG" "$LABEL_POSTFIX_CONFIG")
-    if check_installed_plugin; then
-        MENU_MAIN+=("$TAG_POSTFIX_PLUGIN" "$LABEL_POSTFIX_PLUGIN")
-    fi
-    MENU_MAIN+=("$TAG_POSTFIX_INFO" "$LABEL_POSTFIX_INFO")
-    MENU_MAIN+=('' "$LABEL_SEPARATOR")
-    if check_installed_spamassassin; then
-        MENU_MAIN+=("$TAG_SPAMASSASSIN_CONFIG" "$LABEL_SPAMASSASSIN_CONFIG")
-        MENU_MAIN+=("$TAG_SPAMASSASSIN_INFO" "$LABEL_SPAMASSASSIN_INFO")
-        MENU_MAIN+=('' "$LABEL_SEPARATOR")
-    fi
-    if check_installed_rspamd; then
-        MENU_MAIN+=("$TAG_RSPAMD_FEATURE" "$LABEL_RSPAMD_FEATURE")
-        MENU_MAIN+=("$TAG_RSPAMD_CONFIG" "$LABEL_RSPAMD_CONFIG")
-        MENU_MAIN+=('' "$LABEL_SEPARATOR")
-    fi
-    if check_installed_fail2ban; then
-        MENU_MAIN+=("$TAG_FAIL2BAN_CONFIG" "$LABEL_FAIL2BAN_CONFIG")
-        MENU_MAIN+=('' "$LABEL_SEPARATOR")
-    fi
-    MENU_MAIN+=("$TAG_OTHER_INFO" "$LABEL_OTHER_INFO")
-    if check_installed_peer; then
-        MENU_MAIN+=('' "$LABEL_SEPARATOR")
-        MENU_MAIN+=("$TAG_SYNC_ALL" "$LABEL_SYNC_ALL")
-    fi
+    MENU_MAIN+=("$TAG_MENU_INSTALL" "$LABEL_MENU_INSTALL")
+    MENU_MAIN+=("$TAG_MENU_POSTFIX" "$LABEL_MENU_POSTFIX")
+    check_installed_spamassassin && MENU_MAIN+=("$TAG_MENU_SPAMASSASSIN" "$LABEL_MENU_SPAMASSASSIN")
+    check_installed_rspamd && MENU_MAIN+=("$TAG_MENU_RSPAMD" "$LABEL_MENU_RSPAMD")
+    check_installed_fail2ban && MENU_MAIN+=("$TAG_MENU_FAIL2BAN" "$LABEL_MENU_FAIL2BAN")
+    MENU_MAIN+=("$TAG_MENU_MISC" "$LABEL_MENU_MISC")
+    check_installed_peer && MENU_MAIN+=("$TAG_SYNC_ALL" "$LABEL_SYNC_ALL")
+
     exec 3>&1
     DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Exit' --no-tags --extra-button --extra-label 'Help' --menu '' 0 0 0 "${MENU_MAIN[@]}" 2>&1 1>&3)"
     RET_CODE="$?"
     exec 3>&-
+
     if [ "$RET_CODE" = 0 ]; then
-        [ -z "$DIALOG_RET" ] || "$DIALOG_RET"
+        "$DIALOG_RET"
     elif [ "$RET_CODE" = 3 ]; then
         show_help "$HELP_MAIN"
     else
