@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.4.0 for Postfix
+# menu.sh V1.5.0 for Postfix
 #
 # Copyright (c) 2019 NetCon Unternehmensberatung GmbH, netcon-consulting.com
 #
@@ -15,16 +15,9 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - major rework of menu structure
-# - added Submission port Postfix feature
-# - added installation option for Logwatch and reboot alert
-# - added options for selecting the text editor and configuring email recipient addresses
-# - added option for managing Fail2ban jails
-# - added current and available update version info to install menu with option to update
-# - added option for enabling/disabling automatic updates
-# - added Rspamd stats & info
-# - added info option for install log
-# - added info option about pending updates
+# - added installation option for internal DNS resolver
+# - added option for searching various program logs
+# - bugfixes
 #
 ###################################################################################################
 
@@ -71,6 +64,7 @@ declare -g -r DEFAULT_EDITOR='vim'
 declare -g -a INSTALL_FEATURE
 
 INSTALL_FEATURE=()
+INSTALL_FEATURE+=('resolver')
 INSTALL_FEATURE+=('postfwd')
 INSTALL_FEATURE+=('spamassassin')
 INSTALL_FEATURE+=('rspamd')
@@ -83,6 +77,10 @@ INSTALL_FEATURE+=('logwatch')
 INSTALL_FEATURE+=('logmanager')
 INSTALL_FEATURE+=('reboot')
 INSTALL_FEATURE+=('peer')
+
+# Local DNS resolver
+declare -g -r LABEL_INSTALL_RESOLVER='Local DNS resolver'
+declare -g -r INSTALL_RESOLVER_PACKAGE='bind9'
 
 # Postfwd
 declare -g -r LABEL_INSTALL_POSTFWD='Postfwd3'
@@ -205,6 +203,7 @@ POSTFIX_FEATURE+=('rewrite')
 POSTFIX_FEATURE+=('routing')
 POSTFIX_FEATURE+=('milter')
 POSTFIX_FEATURE+=('bounce')
+POSTFIX_FEATURE+=('limit')
 POSTFIX_FEATURE+=('postscreen')
 POSTFIX_FEATURE+=('psdeep')
 POSTFIX_FEATURE+=('submission')
@@ -283,6 +282,14 @@ declare -g -r POSTFIX_BOUNCE_CUSTOM=1
 
 POSTFIX_BOUNCE+=('notify_classes=bounce, delay, policy, protocol, resource, software, 2bounce')
 
+# Connection limit
+declare -g -r POSTFIX_LIMIT_LABEL='Connection limit'
+
+POSTFIX_LIMIT+=('anvil_rate_time_unit=60s')
+POSTFIX_LIMIT+=('smtpd_client_connection_rate_limit=20')
+POSTFIX_LIMIT+=('smtpd_client_recipient_rate_limit=20')
+POSTFIX_LIMIT+=('smtpd_client_connection_count_limit=20')
+
 # Postscreen
 declare -g -r POSTSCREEN_BLACKLISTS='zen.spamhaus.org*3 b.barracudacentral.org*2 ix.dnsbl.manitu.net*2 bl.spameatingmonkey.net bl.spamcop.net list.dnswl.org=127.0.[0..255].0*-2 list.dnswl.org=127.0.[0..255].1*-3 list.dnswl.org=127.0.[0..255].[2..3]*-4'
 
@@ -329,8 +336,6 @@ declare -g -r POSTFWD_ACCESS='check_policy_service inet:127.0.0.1:10040'
 declare -g -r POSTFIX_POSTFWD_LABEL='Postfwd3'
 declare -g -r POSTFIX_POSTFWD_CHECK=1
 declare -g -r POSTFIX_POSTFWD_CUSTOM=1
-
-POSTFIX_POSTFWD+=('127.0.0.1:10040_time_limit=3600')
 
 # Spamassassin
 declare -g -r POSTFIX_SPAMASSASSIN_LABEL='Spamassassin'
@@ -572,6 +577,35 @@ LABEL_EMAIL_REBOOT='Reboot alert'
 EMAIL_REBOOT_CHECK=1
 
 ###################################################################################################
+# Logs
+declare -g -a PROGRAM_LOGS
+
+PROGRAM_LOGS=()
+PROGRAM_LOGS+=('postfix')
+PROGRAM_LOGS+=('spamassassin')
+PROGRAM_LOGS+=('rspamd')
+PROGRAM_LOGS+=('fail2ban')
+
+# Postfix
+LOG_POSTFIX_DIR="$DIR_LOG/postfix"
+LOG_POSTFIX_LABEL='Postfix'
+
+# Spamassassin
+LOG_SPAMASSASSIN_DIR="$DIR_LOG/spamd"
+LOG_SPAMASSASSIN_LABEL='Spamassassin'
+LOG_SPAMASSASSIN_CHECK=1
+
+# Rspamd
+LOG_RSPAMD_DIR="$DIR_LOG/rspamd"
+LOG_RSPAMD_LABEL='Rspamd'
+LOG_RSPAMD_CHECK=1
+
+# Fail2ban
+LOG_FAIL2BAN_DIR="$DIR_LOG/fail2ban"
+LOG_FAIL2BAN_LABEL='Fail2ban'
+LOG_FAIL2BAN_CHECK=1
+
+###################################################################################################
 # Help
 declare -g -r HELP_MAIN='NetCon Postfix Made Easy
 
@@ -686,7 +720,7 @@ get_keypress() {
 # return values:
 # none
 show_wait() {
-	"$DIALOG" --backtitle "$TITLE_MAIN" --title '' --infobox 'Please wait...' 3 20
+    "$DIALOG" --clear --backtitle "$TITLE_MAIN" --title '' --infobox 'Please wait...' 3 20
 }
 
 # show message in dialog msgbox
@@ -758,7 +792,7 @@ get_file() {
 # return values:
 # error code - 0 for Yes, 1 for No
 get_yesno() {
-    "$DIALOG" --clear --backtitle "$TITLE_MAIN" --title '' --yesno "$2" 0 0
+    "$DIALOG" --clear --backtitle "$TITLE_MAIN" --title '' --yesno "$1" 0 0
 }
 
 # toggle setting
@@ -788,7 +822,17 @@ toggle_setting() {
     fi  
 }
 
-# check whether Postfwd is installed
+# check whether local DNS resolver is installed
+# parameters:
+# none
+# return values:
+# error code - 0 for installed, 1 for not installed
+check_installed_resolver() {
+    which named &>/dev/null
+    [ "$?" = 0 ] && return 0 || return 1
+}
+
+# check whether Postfwd3 is installed
 # parameters:
 # none
 # return values:
@@ -938,7 +982,7 @@ check_installed_plugin() {
 # return values:
 # stdout - version number
 check_version_postfwd() {
-    /usr/local/postfwd/sbin/postfwd --version | awk '{print $2}'
+    /usr/local/postfwd/sbin/postfwd -u postfwd -g postfwd --version | awk '{print $2}'
 }
 
 # check for update of Postfwd
@@ -959,10 +1003,10 @@ check_update_postfwd() {
 # return values:
 # error code - 0 for enabled, 1 disabled
 tls_status() {
-    if [ -z "$(postconf 'smtp_tls_cert_file' | sed -E "s/^smtp_tls_cert_file = ?//")" ]             \
-        || [ -z "$(postconf 'smtp_tls_key_file' | sed -E "s/^smtp_tls_cert_file = ?//")" ]          \
-        || [ -z "$(postconf 'smtpd_tls_cert_file' | sed -E "s/^smtpd_tls_cert_file = ?//")" ]       \
-        || [ -z "$(postconf 'smtpd_tls_key_file' | sed -E "s/^smtpd_tls_cert_file = ?//")" ]; then
+    if [ -z "$(postconf 'smtp_tls_cert_file' 2>/dev/null | sed -E "s/^smtp_tls_cert_file = ?//")" ]             \
+        || [ -z "$(postconf 'smtp_tls_key_file' 2>/dev/null | sed -E "s/^smtp_tls_cert_file = ?//")" ]          \
+        || [ -z "$(postconf 'smtpd_tls_cert_file' 2>/dev/null | sed -E "s/^smtpd_tls_cert_file = ?//")" ]       \
+        || [ -z "$(postconf 'smtpd_tls_key_file' 2>/dev/null | sed -E "s/^smtpd_tls_cert_file = ?//")" ]; then
         return 1
     fi
 
@@ -991,10 +1035,10 @@ tls_enable() {
         if [ "$RET_CODE" = 0 ]; then
             [ -f "$FILE_DHPARAM" ] || openssl dhparam -out "$FILE_DHPARAM" 2048 &>/dev/null
 
-            postconf "smtp_tls_cert_file=$FILE_CERT"
-            postconf "smtp_tls_key_file=$FILE_KEY"
-            postconf "smtpd_tls_cert_file=$FILE_CERT"
-            postconf "smtpd_tls_key_file=$FILE_KEY"
+            postconf "smtp_tls_cert_file=$FILE_CERT" 2>/dev/null
+            postconf "smtp_tls_key_file=$FILE_KEY" 2>/dev/null
+            postconf "smtpd_tls_cert_file=$FILE_CERT" 2>/dev/null
+            postconf "smtpd_tls_key_file=$FILE_KEY" 2>/dev/null
 
             return 0
         fi
@@ -1012,7 +1056,7 @@ tls_disable() {
     declare POSTFIX_SETTING
 
     for POSTFIX_SETTING in smtp_tls_cert_file smtp_tls_key_file smtpd_tls_cert_file smtpd_tls_key_file; do
-        postconf "$POSTFIX_SETTING=$(postconf -d "$POSTFIX_SETTING" | sed -E "s/^$POSTFIX_SETTING = ?//")"
+        postconf "$POSTFIX_SETTING=$(postconf -d "$POSTFIX_SETTING" 2>/dev/null | sed -E "s/^$POSTFIX_SETTING = ?//")" 2>/dev/null
     done
 }
 
@@ -1025,7 +1069,7 @@ bounce_status() {
     declare SETTING_KEY
 
     for SETTING_KEY in 2bounce_notice_recipient bounce_notice_recipient delay_notice_recipient error_notice_recipient; do
-        [ "$(postconf "$SETTING_KEY")" != "$(postconf -d "$SETTING_KEY")" ] && return 0
+        [ "$(postconf "$SETTING_KEY" 2>/dev/null)" != "$(postconf -d "$SETTING_KEY" 2>/dev/null)" ] && return 0
     done
 
     return 1
@@ -1046,7 +1090,7 @@ bounce_enable() {
 
     if [ "$RET_CODE" = 0 ] && ! [ -z "$EMAIL_BOUNCE" ]; then
         for SETTING_KEY in 2bounce_notice_recipient bounce_notice_recipient delay_notice_recipient error_notice_recipient; do
-            postconf "$SETTING_KEY=$EMAIL_BOUNCE"
+            postconf "$SETTING_KEY=$EMAIL_BOUNCE" 2>/dev/null
         done
 
         return 0
@@ -1064,7 +1108,7 @@ bounce_disable() {
     declare SETTING_KEY
 
     for SETTING_KEY in 2bounce_notice_recipient bounce_notice_recipient delay_notice_recipient error_notice_recipient; do
-        postconf "$SETTING_KEY=$(postconf -d "$SETTING_KEY" | sed -E "s/^$SETTING_KEY = ?//")"
+        postconf "$SETTING_KEY=$(postconf -d "$SETTING_KEY" 2>/dev/null | sed -E "s/^$SETTING_KEY = ?//")" 2>/dev/null
     done
 }
 
@@ -1090,10 +1134,10 @@ postscreen_status() {
 # return values:
 # none
 postscreen_enable() {
-    postconf -Me '25/inet=25 inet n - n - 1 postscreen'
-    postconf -Me 'smtpd/pass=smtpd pass - - n - - smtpd'
-    postconf -Me 'dnsblog/unix=dnsblog unix - - n - 0 dnsblog'
-    postconf -Me 'tlsproxy/unix=tlsproxy unix - - n - 0 tlsproxy'
+    postconf -Me '25/inet=25 inet n - n - 1 postscreen' 2>/dev/null
+    postconf -Me 'smtpd/pass=smtpd pass - - n - - smtpd' 2>/dev/null
+    postconf -Me 'dnsblog/unix=dnsblog unix - - n - 0 dnsblog' 2>/dev/null
+    postconf -Me 'tlsproxy/unix=tlsproxy unix - - n - 0 tlsproxy' 2>/dev/null
 }
 
 # disable Postscreen
@@ -1102,10 +1146,10 @@ postscreen_enable() {
 # return values:
 # none
 postscreen_disable() {
-    postconf -MX '25/inet'
-    postconf -MX 'smtpd/pass'
-    postconf -MX 'dnsblog/unix'
-    postconf -MX 'tlsproxy/unix'
+    postconf -MX '25/inet' 2>/dev/null
+    postconf -MX 'smtpd/pass' 2>/dev/null
+    postconf -MX 'dnsblog/unix' 2>/dev/null
+    postconf -MX 'tlsproxy/unix' 2>/dev/null
 }
 
 # check Submission status
@@ -1127,7 +1171,7 @@ submission_status() {
 # return values:
 # none
 submission_enable() {
-    postconf -Me 'submission/inet=submission inet n - n - - smtpd -o message_size_limit= -o smtpd_milters= -o smtpd_recipient_restrictions='
+    postconf -Me 'submission/inet=submission inet n - n - - smtpd -o message_size_limit= -o smtpd_milters= -o smtpd_recipient_restrictions=' 2>/dev/null
 }
 
 # disable Submission
@@ -1136,7 +1180,7 @@ submission_enable() {
 # return values:
 # none
 submission_disable() {
-    postconf -MX 'submission/inet'
+    postconf -MX 'submission/inet' 2>/dev/null
 }
 
 # check recipient restrictions status
@@ -1145,7 +1189,13 @@ submission_disable() {
 # return values:
 # error code - 0 for enabled, 1 for disabled
 recipient_status() {
-    if [ "$(postconf 'smtpd_recipient_restrictions')" != "$(postconf -d 'smtpd_recipient_restrictions')" ]; then
+    declare RESTRICTION_CURRENT
+    
+    RESTRICTION_CURRENT="$(postconf 'smtpd_recipient_restrictions' 2>/dev/null)"
+
+    postfwd_status && RESTRICTION_CURRENT=$(echo "$RESTRICTION_CURRENT" | sed -E "s/(, | )?$POSTFWD_ACCESS//g")
+
+    if [ "$RESTRICTION_CURRENT" != "$(postconf -d 'smtpd_recipient_restrictions' 2>/dev/null)" ]; then
         return 0
     fi
     
@@ -1158,9 +1208,9 @@ recipient_status() {
 # return values:
 # error code - 0 for enabled, 1 for disabled
 unverified_status() {
-    if [ "$(postconf 'address_verify_transport_maps' | sed -E 's/^address_verify_transport_maps = ?//')" = "hash:$CONFIG_POSTFIX_TRANSPORT" ]               \
-        && [ -z "$(postconf 'address_verify_map' | sed -E 's/^address_verify_map = ?//')" ]                                                                 \
-        && [ "$(postconf 'unverified_recipient_reject_reason' | sed -E 's/^unverified_recipient_reject_reason = ?//')" = "User doesn't exist" ]; then
+    if [ "$(postconf 'address_verify_transport_maps' 2>/dev/null | sed -E 's/^address_verify_transport_maps = ?//')" = "hash:$CONFIG_POSTFIX_TRANSPORT" ]               \
+        && [ -z "$(postconf 'address_verify_map' 2>/dev/null | sed -E 's/^address_verify_map = ?//')" ]                                                                 \
+        && [ "$(postconf 'unverified_recipient_reject_reason' 2>/dev/null | sed -E 's/^unverified_recipient_reject_reason = ?//')" = "User doesn't exist" ]; then
         return 0
     else
         return 1
@@ -1173,9 +1223,9 @@ unverified_status() {
 # return values:
 # none
 unverified_enable() {
-    postconf "address_verify_transport_maps=hash:$CONFIG_POSTFIX_TRANSPORT"
-    postconf 'address_verify_map='
-    postconf "unverified_recipient_reject_reason=User doesn't exist"
+    postconf "address_verify_transport_maps=hash:$CONFIG_POSTFIX_TRANSPORT" 2>/dev/null
+    postconf 'address_verify_map=' 2>/dev/null
+    postconf "unverified_recipient_reject_reason=User doesn't exist" 2>/dev/null
 }
 
 # disable unverified recipient restriction
@@ -1184,9 +1234,9 @@ unverified_enable() {
 # return values:
 # none
 unverified_disable() {
-    postconf "address_verify_transport_maps=$(postconf -d 'address_verify_transport_maps')"
-    postconf "address_verify_map=$(postconf -d 'address_verify_map')"
-    postconf "unverified_recipient_reject_reason=$(postconf -d 'unverified_recipient_reject_reason')"
+    postconf "address_verify_transport_maps=$(postconf -d 'address_verify_transport_maps')" 2>/dev/null
+    postconf "address_verify_map=$(postconf -d 'address_verify_map')" 2>/dev/null
+    postconf "unverified_recipient_reject_reason=$(postconf -d 'unverified_recipient_reject_reason')" 2>/dev/null
 }
 
 # enable recipient restrictions
@@ -1198,7 +1248,7 @@ recipient_enable() {
     declare -a MENU_RESTRICTION
     declare RESTRICTION_CURRENT POSTFWD_ACTIVE LIST_RESTRICTION RESTRICTION DIALOG_RET RET_CODE RESTRICTION_NEW
 
-    RESTRICTION_CURRENT="$(postconf 'smtpd_recipient_restrictions' | sed -E 's/^smtpd_recipient_restrictions = ?//')"
+    RESTRICTION_CURRENT="$(postconf 'smtpd_recipient_restrictions' 2>/dev/null | sed -E 's/^smtpd_recipient_restrictions = ?//')"
 
     echo "$RESTRICTION_CURRENT" | grep -E -q "(^| )$POSTFWD_ACCESS($|,)" && POSTFWD_ACTIVE=1
 
@@ -1225,10 +1275,10 @@ recipient_enable() {
 
     if [ "$RET_CODE" = 0 ]; then
         RESTRICTION_NEW="$RECIPIENT_ACCESS$(echo "$DIALOG_RET" | sed -E 's/ ?(\S+)/, reject_\1/g')"
-        [ "$POSTFWD_ACTIVE" = 1 ] && RESTRICTION_NEW+=" $POSTFWD_ACCESS"
+        [ "$POSTFWD_ACTIVE" = 1 ] && RESTRICTION_NEW+=", $POSTFWD_ACCESS"
 
         if [ "$RESTRICTION_NEW" != "$RESTRICTION_CURRENT" ]; then
-            postconf "smtpd_recipient_restrictions=$RESTRICTION_NEW"
+            postconf "smtpd_recipient_restrictions=$RESTRICTION_NEW" 2>/dev/null
 
             if echo "$DIALOG_RET" | grep -E -q '(^| )unverified_recipient($| )'; then
                 [ "$STATUS_UNVERIFIED" = 'off' ] && unverified_enable
@@ -1249,16 +1299,16 @@ recipient_enable() {
 # return values:
 # none
 recipient_disable() {
-    declare -r RESTRICTION_DEFAULT="$(postconf -d 'smtpd_recipient_restrictions' | sed -E 's/^smtpd_recipient_restrictions = ?//')"
+    declare -r RESTRICTION_DEFAULT="$(postconf -d 'smtpd_recipient_restrictions' 2>/dev/null | sed -E 's/^smtpd_recipient_restrictions = ?//')"
 
     if postfwd_status; then
         if [ -z "$RESTRICTION_DEFAULT" ]; then
-            postconf "smtpd_recipient_restrictions=$POSTFWD_ACCESS"
+            postconf "smtpd_recipient_restrictions=$POSTFWD_ACCESS" 2>/dev/null
         else
-            postconf "smtpd_recipient_restrictions=$RESTRICTION_DEFAULT, $POSTFWD_ACCESS"
+            postconf "smtpd_recipient_restrictions=$RESTRICTION_DEFAULT, $POSTFWD_ACCESS" 2>/dev/null
         fi
     else
-        postconf "smtpd_recipient_restrictions=$RESTRICTION_DEFAULT"
+        postconf "smtpd_recipient_restrictions=$RESTRICTION_DEFAULT" 2>/dev/null
     fi
 }
 
@@ -1268,7 +1318,7 @@ recipient_disable() {
 # return values:
 # error code - 0 for enabled, 1 for disabled
 postfwd_status() {
-    if postconf 'smtpd_recipient_restrictions' | sed -E 's/^smtpd_recipient_restrictions = ?//' 2>/dev/null | grep -E -q "(^| )$POSTFWD_ACCESS($|,)"; then
+    if postconf 'smtpd_recipient_restrictions' 2>/dev/null | sed -E 's/^smtpd_recipient_restrictions = ?//' | grep -E -q "(^| )$POSTFWD_ACCESS($|,)"; then
         return 0
     else
         return 1
@@ -1281,7 +1331,13 @@ postfwd_status() {
 # return values:
 # none
 postfwd_enable() {
-    postconf "smtpd_recipient_restrictions=$(postconf 'smtpd_recipient_restrictions' | sed -E 's/^smtpd_recipient_restrictions = ?//'), $POSTFWD_ACCESS"
+    declare -r RESTRICTION_CURRENT="$(postconf 'smtpd_recipient_restrictions' 2>/dev/null | sed -E 's/^smtpd_recipient_restrictions = ?//')"
+
+    if [ -z "$RESTRICTION_CURRENT" ]; then
+        postconf "smtpd_recipient_restrictions=$POSTFWD_ACCESS"
+    else
+        postconf "smtpd_recipient_restrictions=$RESTRICTION_CURRENT, $POSTFWD_ACCESS" 2>/dev/null
+    fi
 }
 
 # disable Postfwd
@@ -1290,7 +1346,7 @@ postfwd_enable() {
 # return values:
 # none
 postfwd_disable() {
-    postconf "smtpd_recipient_restrictions=$(postconf 'smtpd_recipient_restrictions' | sed -E 's/^smtpd_recipient_restrictions = ?//' | sed -E "s/(, )?$POSTFWD_ACCESS//g")"
+    postconf "smtpd_recipient_restrictions=$(postconf 'smtpd_recipient_restrictions' 2>/dev/null | sed -E 's/^smtpd_recipient_restrictions = ?//' | sed -E "s/(, )?$POSTFWD_ACCESS//g")" 2>/dev/null
 }
 
 # check Spamassassin status
@@ -1313,8 +1369,8 @@ spamassassin_status() {
 # return values:
 # none
 spamassassin_enable() {
-    postconf -Me 'smtpd/pass=smtpd pass - - y - - smtpd -o content_filter=spamassassin'
-    postconf -Me 'spamassassin/unix=spamassassin unix - n n - - pipe user=spamd argv=/usr/bin/spamc -s 1024000 -f -e /usr/sbin/sendmail -oi -f ${sender} ${recipient}'
+    postconf -Me 'smtpd/pass=smtpd pass - - y - - smtpd -o content_filter=spamassassin' 2>/dev/null
+    postconf -Me 'spamassassin/unix=spamassassin unix - n n - - pipe user=spamd argv=/usr/bin/spamc -s 1024000 -f -e /usr/sbin/sendmail -oi -f ${sender} ${recipient}' 2>/dev/null
 }
 
 # disable Spamassassin
@@ -1323,8 +1379,8 @@ spamassassin_enable() {
 # return values:
 # none
 spamassassin_disable() {
-    postconf -MX 'smtpd/pass'
-    postconf -MX 'spamassassin/unix'
+    postconf -MX 'smtpd/pass' 2>/dev/null
+    postconf -MX 'spamassassin/unix' 2>/dev/null
 }
 
 # check Rspamd status
@@ -1333,7 +1389,7 @@ spamassassin_disable() {
 # return values:
 # error code - 0 for enabled, 1 for disabled
 rspamd_status() {
-    if postconf smtpd_milters | sed -E 's/^smtpd_milters = ?//' | grep -q 'inet:127.0.0.1:11332'; then
+    if postconf smtpd_milters 2>/dev/null | sed -E 's/^smtpd_milters = ?//' | grep -q 'inet:127.0.0.1:11332'; then
         return 0
     else
         return 1
@@ -1348,11 +1404,11 @@ rspamd_status() {
 rspamd_enable() {
     declare LIST_MILTER
 
-    LIST_MILTER="$(postconf smtpd_milters | sed -E 's/^smtpd_milters = ?//')"
+    LIST_MILTER="$(postconf smtpd_milters 2>/dev/null | sed -E 's/^smtpd_milters = ?//')"
 
     [ -z "$LIST_MILTER" ] && LIST_MILTER='inet:127.0.0.1:11332' || LIST_MILTER+=', inet:127.0.0.1:11332'
     
-    postconf "smtpd_milters=$LIST_MILTER"
+    postconf "smtpd_milters=$LIST_MILTER" 2>/dev/null
 }
 
 # disable Rspamd
@@ -1363,7 +1419,7 @@ rspamd_enable() {
 rspamd_disable() {
     declare LIST_MILTER
 
-    LIST_MILTER="$(postconf smtpd_milters | sed -E 's/^smtpd_milters = ?//')"
+    LIST_MILTER="$(postconf smtpd_milters 2>/dev/null | sed -E 's/^smtpd_milters = ?//')"
 
     if [ "$LIST_MILTER" = 'inet:127.0.0.1:11332' ]; then
         LIST_MILTER=''
@@ -1373,7 +1429,7 @@ rspamd_disable() {
         LIST_MILTER="$(echo "$LIST_MILTER" | sed -E 's/inet:127.0.0.1:11332, //')"
     fi
 
-    postconf "smtpd_milters=$LIST_MILTER"
+    postconf "smtpd_milters=$LIST_MILTER" 2>/dev/null
 }
 
 # check SPF-check status
@@ -1395,7 +1451,7 @@ spf_status() {
 # return values:
 # none
 spf_enable() {
-    postconf -Me 'policyd-spf/unix=policyd-spf unix - n n - 0 spawn user=policyd-spf argv=/usr/bin/policyd-spf'
+    postconf -Me 'policyd-spf/unix=policyd-spf unix - n n - 0 spawn user=policyd-spf argv=/usr/bin/policyd-spf' 2>/dev/null
 }
 
 # disable SPF-check
@@ -1404,7 +1460,7 @@ spf_enable() {
 # return values:
 # none
 spf_disable() {
-    postconf -MX 'policyd-spf/unix'
+    postconf -MX 'policyd-spf/unix' 2>/dev/null
 }
 
 # check Rspamd status
@@ -1413,7 +1469,7 @@ spf_disable() {
 # return values:
 # error code - 0 for enabled, 1 for disabled
 dkim_status() {
-    if postconf smtpd_milters | sed -E 's/^smtpd_milters = ?//' | grep -q 'inet:127.0.0.1:10001'; then
+    if postconf smtpd_milters 2>/dev/null | sed -E 's/^smtpd_milters = ?//' | grep -q 'inet:127.0.0.1:10001'; then
         return 0
     else
         return 1
@@ -1428,11 +1484,11 @@ dkim_status() {
 dkim_enable() {
     declare LIST_MILTER
 
-    LIST_MILTER="$(postconf smtpd_milters | sed -E 's/^smtpd_milters = ?//')"
+    LIST_MILTER="$(postconf smtpd_milters 2>/dev/null | sed -E 's/^smtpd_milters = ?//')"
 
     [ -z "$LIST_MILTER" ] && LIST_MILTER='inet:127.0.0.1:10001' || LIST_MILTER+=', inet:127.0.0.1:10001'
     
-    postconf "smtpd_milters=$LIST_MILTER"
+    postconf "smtpd_milters=$LIST_MILTER" 2>/dev/null
 }
 
 # disable Rspamd
@@ -1443,7 +1499,7 @@ dkim_enable() {
 dkim_disable() {
     declare LIST_MILTER
 
-    LIST_MILTER="$(postconf smtpd_milters | sed -E 's/^smtpd_milters = ?//')"
+    LIST_MILTER="$(postconf smtpd_milters 2>/dev/null | sed -E 's/^smtpd_milters = ?//')"
 
     if [ "$LIST_MILTER" = 'inet:127.0.0.1:10001' ]; then
         LIST_MILTER=''
@@ -1453,7 +1509,7 @@ dkim_disable() {
         LIST_MILTER="$(echo "$LIST_MILTER" | sed -E 's/inet:127.0.0.1:10001, //')"
     fi
 
-    postconf "smtpd_milters=$LIST_MILTER"
+    postconf "smtpd_milters=$LIST_MILTER" 2>/dev/null
 }
 
 # checks status of given Postfix feature
@@ -1471,7 +1527,7 @@ postfix_feature_status() {
 
     while read POSTFIX_SETTING; do
         SETTING_KEY="$(echo "$POSTFIX_SETTING" | awk -F= '{print $1}')"
-        if [ "$(postconf "$SETTING_KEY" | sed -E "s/^$SETTING_KEY = ?//")" != "$(echo "$POSTFIX_SETTING" | sed "s/^$SETTING_KEY=//")" ]; then
+        if [ "$(postconf "$SETTING_KEY" 2>/dev/null | sed -E "s/^$SETTING_KEY = ?//")" != "$(echo "$POSTFIX_SETTING" | sed "s/^$SETTING_KEY=//")" ]; then
             echo off
             return
         fi
@@ -1493,7 +1549,7 @@ postfix_feature_enable() {
     fi
 
     while read POSTFIX_SETTING; do
-        postconf "$POSTFIX_SETTING"
+        postconf "$POSTFIX_SETTING" 2>/dev/null
     done < <(eval "for ELEMENT in \"\${POSTFIX_${1^^}[@]}\"; do echo \"\$ELEMENT\"; done")
 
     return 0
@@ -1513,7 +1569,7 @@ postfix_feature_disable() {
 
     while read POSTFIX_SETTING; do
         SETTING_KEY="$(echo "$POSTFIX_SETTING" | awk -F= '{print $1}')"
-        postconf "$SETTING_KEY=$(postconf -d "$SETTING_KEY" | sed -E "s/^$SETTING_KEY = ?//")"
+        postconf "$SETTING_KEY=$(postconf -d "$SETTING_KEY" 2>/dev/null | sed -E "s/^$SETTING_KEY = ?//")" 2>/dev/null
     done < <(eval "for ELEMENT in \"\${POSTFIX_${1^^}[@]}\"; do echo \"\$ELEMENT\"; done")
 
     return 0
@@ -1634,7 +1690,7 @@ postfix_config() {
 
                 if [ "$?" != 0 ]; then
                     cp -f "$TMP_CONFIG" "$FILE_CONFIG"
-                    postconf | grep -q "hash:$FILE_CONFIG" && postmap "$FILE_CONFIG"
+                    postconf 2>/dev/null | grep -q "hash:$FILE_CONFIG" && postmap "$FILE_CONFIG" &>/dev/null
                     postfix reload &>/dev/null
                 fi
 
@@ -1750,42 +1806,18 @@ show_processes() {
     show_info 'Postfix processes' "$INFO"
 }
 
-# search Postfix logs and show results
-# parameters:
-# none
-# return values:
-# none
-search_log() {
-    declare DIALOG_RET RET_CODE INFO
-
-    exec 3>&1
-    DIALOG_RET="$($DIALOG --clear --backtitle "$TITLE_MAIN" --inputbox 'Enter search string' 0 0 2>&1 1>&3)"
-    RET_CODE=$?
-    exec 3>&-
-
-    if [ $RET_CODE = 0 ]; then
-        INFO="$(grep -i -e "$DIALOG_RET" $DIR_LOG_POSTFIX/$1.log)"
-
-        show_info 'Postfix log' "$INFO"
-    fi  
-}
-
 # select Postfix info to show in dialog menu
 # parameters:
 # none
 # return values:
 # none
 postfix_info() {
-    declare -r TAG_LOGCURRENT='logcurrent'
-    declare -r TAG_LOGALL='logall'
     declare -a MENU_POSTFIX_INFO
     declare DIALOG_RET RET_CODE
 
     MENU_POSTFIX_INFO=()
     MENU_POSTFIX_INFO+=('queues' 'Queues')
     MENU_POSTFIX_INFO+=('processes' 'Processes')
-    MENU_POSTFIX_INFO+=("$TAG_LOGCURRENT" 'Current log')
-    MENU_POSTFIX_INFO+=("$TAG_LOGALL" 'All logs')
 
     while true; do
         exec 3>&1
@@ -1794,13 +1826,7 @@ postfix_info() {
         exec 3>&-
 
         if [ "$RET_CODE" = 0 ]; then
-            if [ "$DIALOG_RET" = "$TAG_LOGCURRENT" ]; then
-                search_log 'current'
-            elif [ "$DIALOG_RET" = "$TAG_LOGALL" ]; then
-                search_log '*'
-            else
-                "show_$DIALOG_RET"
-            fi
+            "show_$DIALOG_RET"
         elif [ "$RET_CODE" = 3 ]; then
             show_help "$HELP_POSTFIX_INFO"
         else
@@ -2761,7 +2787,10 @@ show_install() {
 # return values:
 # none
 show_update() {
-    declare -r INFO="$(apt list --upgradable 2>/dev/null | grep 'upgradable' | awk 'match($0, /([^/]+)\S+ (\S+)/, a) {print a[1]" ("a[2]")"}')"
+    declare INFO
+    
+    INFO="$(apt list --upgradable 2>/dev/null | grep 'upgradable' | awk 'match($0, /([^/]+)\S+ (\S+)/, a) {print a[1]" ("a[2]")"}')"
+    [ -z "$INFO" ] && INFO='No pending updates'
 
     show_info 'Pending updates' "$INFO"
 }
@@ -2829,7 +2858,7 @@ text_editor() {
     done
 
     exec 3>&1
-    DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu 'Select text editor' 0 0 0 "${MENU_EDITOR[@]}" 2>&1 1>&3)"
+    DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu 'Select text editor' 0 0 0 "${MENU_EDITOR[@]}" 2>&1 1>&3)"
     RET_CODE="$?"
     exec 3>&-
 
@@ -2913,7 +2942,7 @@ email_addresses() {
         done
 
         exec 3>&1
-        DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu 'Configure email address' 0 0 0 "${MENU_EMAIL[@]}" 2>&1 1>&3)"
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu 'Configure email address' 0 0 0 "${MENU_EMAIL[@]}" 2>&1 1>&3)"
         RET_CODE="$?"
         exec 3>&-
 
@@ -3012,7 +3041,7 @@ general_settings() {
         automatic_update_status && MENU_GENERAL+=("$TAG_UPDATES" "$LABEL_UPDATES (enabled)") || MENU_GENERAL+=("$TAG_UPDATES" "$LABEL_UPDATES (disabled)")
 
         exec 3>&1
-        DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu '' 0 0 0 "${MENU_GENERAL[@]}" 2>&1 1>&3)"
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_GENERAL[@]}" 2>&1 1>&3)"
         RET_CODE="$?"
         exec 3>&-
         if [ "$RET_CODE" = 0 ]; then
@@ -3028,6 +3057,36 @@ general_settings() {
             break
         fi
     done
+}
+
+# install local DNS resolver
+# parameters:
+# none
+# return values:
+# none
+install_resolver() {
+    declare -r PACKED_CONFIG='
+    H4sIAFf/+V0AA7VX227bMAx971cIeXcuxdo+9GMGxWYcYbLkSXIap9i/j5Zkm0mrQRjsJEAQ8Rzx
+    iKZIRrdOaGXZ5xPDVyUMlE6bnm12F252JS/PsDsKVW3eA0BZC2Vx4VJUfGAy3jkdbA2/FsozCuck
+    e93vwzoizoW6VrrhQjE1ooUSDZeFAduiALCsBxtMUlgHqtCquLyyT2QoeGd/HmxoODy/bff4PkzW
+    k5AOTMHx5ek/5k3xYJ2xg+JpiUupP4rZ8N2O8cCg+FFCoKLl6Yaa2EYo9KY2MXiubwGDgPrMpGYC
+    bavjJlClrmuh6kgqz1wpkMy0t58eH5Znun8OyNkp3kC1Q9wWf23YBbxoy16YFTdgL/vmfaJaQLNw
+    Pat6pIlytrQG9RSTfYrFoIzqqeDEO+myNEXsg67D/j+EOdFAWlQNCgyXWaIidn1ReA/4kVvIC1UE
+    e1lLKbBDBiM7S8EIXj8wpVYnUWeJCtBFg4J1RUvcIO9WRfD6QbmesD4JlaUqYhcNi99Td3kXewQv
+    qkBpJ055uRqgi3ovpQCVd/oAXdR7pxrusEFWWQIm9KIafndIBpulIGKXuBZfW052woD70OZXXsYE
+    7LIPrcWqnVfeA3RR75Ww7ZAFee0lgpdV4EegPP8eun4VlegNM8oMPrKEUcIq8oav+6bcW/RDdMUF
+    qUsu31a9N5iC9TDDx7mMaKBTXYIU5yZColNXylMca6grOhbdhWlijaMIDRIdZRLOwrBASGTQSFDG
+    /k5Id/NBghYbMGHR9v0vEjbNR9bYdBO00OsIifTJVCB8g6KBmJtbgjK1FMK6b0oJYuwEhEb7SOpM
+    oRrTQ5Fa/s3dmWT6Oko1zjU4lYKx9NEUpKUzRfMVi5Lmapeg0FpCiF9qUioX2xtNw/i/bwLj5y+u
+    tslelA8AAA==
+    '
+
+    show_wait
+    apt install -y bind9 &>/dev/null
+
+    printf '%s' $PACKED_CONFIG | base64 -d | gunzip > /etc/bind/named.conf.options
+    mkdir -p /var/log/named
+    systemctl restart bind9 &>/dev/null
 }
 
 # install Postfwd
@@ -3049,10 +3108,10 @@ install_postfwd() {
     wget https://raw.githubusercontent.com/postfwd/postfwd/master/bin/postfwd-script.sh -O - 2>/dev/null | sed "s/nobody/$POSTFWD_USER/" > /etc/init.d/postfwd
     chmod +x /etc/init.d/postfwd
 
-    apt install -y libnet-server-perl &>/dev/null
+    apt install -y libnet-server-perl libnet-dns-perl &>/dev/null
 
-    systemctl daemon-reload
-    systemctl start postfwd
+    systemctl daemon-reload &>/dev/null
+    systemctl start postfwd &>/dev/null
     update-rc.d postfwd defaults
 }
 
@@ -3063,7 +3122,7 @@ install_postfwd() {
 # none
 install_spamassassin() {
     show_wait
-    apt install -y geoip-bin geoip-database geoip-database-extra cpanminus libbsd-resource-perl libdbi-perl libencode-detect-perl libgeo-ip-perl liblwp-useragent-determined-perl libmail-dkim-perl libnet-cidr-perl libdigest-sha-perl libnet-patricia-perl monit postfix postfix-pcre sa-compile spamassassin spamc spf-tools-perl redis-server pyzor razor &>/dev/null
+    apt install -y geoip-bin geoip-database geoip-database-extra cpanminus libbsd-resource-perl libdbi-perl libencode-detect-perl libgeo-ip-perl liblwp-useragent-determined-perl libmail-dkim-perl libnet-cidr-perl libdigest-sha-perl libnet-patricia-perl monit postfix postfix-pcre sa-compile spamassassin spamc spf-tools-perl redis-server &>/dev/null
 }
 
 # install Rspamd
@@ -3072,6 +3131,8 @@ install_spamassassin() {
 # return values:
 # none
 install_rspamd() {
+    declare CODENAME
+
     show_wait
     apt-get install -y lsb-release wget &>/dev/null
     CODENAME="$(lsb_release -c -s)"
@@ -3315,29 +3376,29 @@ menu_install() {
         done
 
         exec 3>&1
-        DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu '' 0 0 0 "${MENU_INSTALL[@]}" 2>&1 1>&3)"
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_INSTALL[@]}" 2>&1 1>&3)"
         RET_CODE="$?"
         exec 3>&-
 
         if [ "$RET_CODE" = 0 ]; then
-            if "check_installed_${FEATURE}"; then
-                NAME_PACKAGE="$(eval echo \"\$INSTALL_${FEATURE^^}_PACKAGE\")"
+            if "check_installed_$DIALOG_RET"; then
+                NAME_PACKAGE="$(eval echo \"\$INSTALL_${DIALOG_RET^^}_PACKAGE\")"
 
                 if [ -z "$NAME_PACKAGE" ]; then
-                    get_yesno 'Already installed. Re-install?'
+                    get_yesno "'$(eval echo \"\$LABEL_INSTALL_${DIALOG_RET^^}\")' already installed. Re-install?"
 
-                    [ "$?" = 0 ] && "install_${DIALOG_RET}"
+                    [ "$?" = 0 ] && "install_$DIALOG_RET"
                 else
                     PACKAGE_INFO="$(apt-cache policy "$NAME_PACKAGE")"
                     VERSION_CURRENT="$(echo "$PACKAGE_INFO" | sed -n '2p' | sed -E 's/^.+\s+//')"
                     VERSION_AVAILABLE="$(echo "$PACKAGE_INFO" | sed -n '3p' | sed -E 's/^.+\s+//')"
 
                     if [ "$VERSION_CURRENT" = "$VERSION_AVAILABLE" ]; then
-                        get_yesno 'Already installed. Re-install?'
+                        get_yesno "'$(eval echo \"\$LABEL_INSTALL_${DIALOG_RET^^}\")' already installed. Re-install?"
 
-                        [ "$?" = 0 ] && "install_${DIALOG_RET}"
+                        [ "$?" = 0 ] && "install_$DIALOG_RET"
                     else                        
-                        get_yesno 'Install update?'
+                        get_yesno "Install '$(eval echo \"\$LABEL_INSTALL_${DIALOG_RET^^}\")' update?"
 
                         if [ "$?" = 0 ]; then
                             show_wait
@@ -3347,9 +3408,9 @@ menu_install() {
                     fi
                 fi
             else
-                get_yesno 'Install?'
+                get_yesno "Install '$(eval echo \"\$LABEL_INSTALL_${DIALOG_RET^^}\")'?"
 
-                [ "$?" = 0 ] && "install_${DIALOG_RET}"
+                [ "$?" = 0 ] && "install_$DIALOG_RET"
             fi
         elif [ "$RET_CODE" = 3 ]; then
             show_help "$HELP_INSTALL_FEATURE"
@@ -3383,7 +3444,7 @@ menu_postfix() {
 
     while true; do
         exec 3>&1
-        DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu '' 0 0 0 "${MENU_POSTFIX[@]}" 2>&1 1>&3)"
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_POSTFIX[@]}" 2>&1 1>&3)"
         RET_CODE="$?"
         exec 3>&-
 
@@ -3412,13 +3473,13 @@ menu_spamassassin() {
     declare -a MENU_SPAMASSASSIN
 
     MENU_SPAMASSASSIN=()
-    MENU_SPAMASSASSIN+=("$TAG_FEATURE" "$LABEL_FEATURE")
+#    MENU_SPAMASSASSIN+=("$TAG_FEATURE" "$LABEL_FEATURE")
     MENU_SPAMASSASSIN+=("$TAG_CONFIG" "$LABEL_CONFIG")
     MENU_SPAMASSASSIN+=("$TAG_INFO" "$LABEL_INFO")
 
     while true; do
         exec 3>&1
-        DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu '' 0 0 0 "${MENU_SPAMASSASSIN[@]}" 2>&1 1>&3)"
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_SPAMASSASSIN[@]}" 2>&1 1>&3)"
         RET_CODE="$?"
         exec 3>&-
 
@@ -3453,7 +3514,7 @@ menu_rspamd() {
 
     while true; do
         exec 3>&1
-        DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu '' 0 0 0 "${MENU_RSPAMD[@]}" 2>&1 1>&3)"
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_RSPAMD[@]}" 2>&1 1>&3)"
         RET_CODE="$?"
         exec 3>&-
 
@@ -3485,7 +3546,7 @@ menu_fail2ban() {
 
     while true; do
         exec 3>&1
-        DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu '' 0 0 0 "${MENU_FAIL2BAN[@]}" 2>&1 1>&3)"
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_FAIL2BAN[@]}" 2>&1 1>&3)"
         RET_CODE="$?"
         exec 3>&-
 
@@ -3517,14 +3578,63 @@ menu_misc() {
 
     while true; do
         exec 3>&1
-        DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --menu '' 0 0 0 "${MENU_MISC[@]}" 2>&1 1>&3)"
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_MISC[@]}" 2>&1 1>&3)"
         RET_CODE="$?"
         exec 3>&-
 
         if [ "$RET_CODE" = 0 ]; then
             "$DIALOG_RET"
         elif [ "$RET_CODE" = 3 ]; then
-            show_help "$HELP_FAIL2BAN"
+            show_help "$HELP_MISC"
+        else
+            break
+        fi
+    done
+}
+
+# select log in dialog menu
+# parameters:
+# none
+# return values:
+# none
+menu_log() {
+    declare PROGRAM_LOG RET_CODE SEARCH_FILTER SEARCH_RESULT
+    declare -a MENU_LOG
+
+    MENU_LOG=()
+    for PROGRAM_LOG in "${PROGRAM_LOGS[@]}"; do
+        if [ "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_CHECK\")" != 1 ] || check_installed_$PROGRAM_LOG; then
+            MENU_LOG+=("$PROGRAM_LOG" "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_LABEL\")")
+        fi
+    done
+
+    while true; do
+        exec 3>&1
+        PROGRAM_LOG="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_LOG[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            exec 3>&1
+            SEARCH_FILTER="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --title 'Search logs' --ok-label 'Current log' --extra-button --extra-label 'All logs' --inputbox 'Enter search filter' 0 0 '' 2>&1 1>&3)"
+            RET_CODE="$?"
+            exec 3>&-
+
+            if ! [ -z "$SEARCH_FILTER" ]; then
+                if [ "$RET_CODE" = 0 ] || [ "$RET_CODE" = 3 ]; then
+                    if [ "$RET_CODE" = 0 ]; then
+                        SEARCH_RESULT="$(grep "$SEARCH_FILTER" "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_DIR\")/current.log")"
+                    else
+                        SEARCH_RESULT="$(grep "$SEARCH_FILTER" -h "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_DIR\")"/*.log)"
+                    fi
+
+                    [ -z "$SEARCH_RESULT" ] && SEARCH_RESULT='No result'
+
+                    show_info 'Search results' "$SEARCH_RESULT"
+                fi
+            fi
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_LOG"
         else
             break
         fi
@@ -3659,7 +3769,7 @@ write_examples() {
         echo '###########################################' >> "$CONFIG_POSTFIX_ROUTING"
         echo '#mueller@isdoll.de     smtp:[127.0.0.1]:10026' >> "$CONFIG_POSTFIX_ROUTING"
         echo '#@isdoll.de            smtp:[127.0.0.1]:10026' >> "$CONFIG_POSTFIX_ROUTING"
-        postmap "$CONFIG_POSTFIX_ROUTING"
+        postmap "$CONFIG_POSTFIX_ROUTING" &>/dev/null
     fi
 
     if ! [ -f "$CONFIG_POSTFIX_MILTER" ]; then
@@ -3683,6 +3793,7 @@ declare -r TAG_MENU_SPAMASSASSIN='menu_spamassassin'
 declare -r TAG_MENU_RSPAMD='menu_rspamd'
 declare -r TAG_MENU_FAIL2BAN='menu_fail2ban'
 declare -r TAG_MENU_MISC='menu_misc'
+declare -r TAG_MENU_LOG='menu_log'
 declare -r TAG_MENU_SYNC_ALL='sync_all'
 declare -r LABEL_MENU_INSTALL='Install'
 declare -r LABEL_MENU_POSTFIX='Postfix'
@@ -3690,6 +3801,7 @@ declare -r LABEL_MENU_SPAMASSASSIN='Spamassassin'
 declare -r LABEL_MENU_RSPAMD='Rspamd'
 declare -r LABEL_MENU_FAIL2BAN='Fail2ban'
 declare -r LABEL_MENU_MISC='Misc'
+declare -r LABEL_MENU_LOG='Logs'
 declare -r LABEL_SYNC_ALL='Sync all config'
 declare -a MENU_MAIN
 declare DIALOG_RET RET_CODE
@@ -3715,10 +3827,11 @@ while true; do
     check_installed_rspamd && MENU_MAIN+=("$TAG_MENU_RSPAMD" "$LABEL_MENU_RSPAMD")
     check_installed_fail2ban && MENU_MAIN+=("$TAG_MENU_FAIL2BAN" "$LABEL_MENU_FAIL2BAN")
     MENU_MAIN+=("$TAG_MENU_MISC" "$LABEL_MENU_MISC")
+    check_installed_logmanager && MENU_MAIN+=("$TAG_MENU_LOG" "$LABEL_MENU_LOG")
     check_installed_peer && MENU_MAIN+=("$TAG_SYNC_ALL" "$LABEL_SYNC_ALL")
 
     exec 3>&1
-    DIALOG_RET="$("$DIALOG" --clear --title "$TITLE_MAIN $VERSION_MENU" --cancel-label 'Exit' --no-tags --extra-button --extra-label 'Help' --menu '' 0 0 0 "${MENU_MAIN[@]}" 2>&1 1>&3)"
+    DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Exit' --no-tags --extra-button --extra-label 'Help' --title "$TITLE_MAIN" --menu '' 0 0 0 "${MENU_MAIN[@]}" 2>&1 1>&3)"
     RET_CODE="$?"
     exec 3>&-
 
