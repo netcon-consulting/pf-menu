@@ -1,11 +1,12 @@
 #!/bin/bash
 
-# menu.sh V1.5.0 for Postfix
+# menu.sh V1.6.0 for Postfix
 #
 # Copyright (c) 2019 NetCon Unternehmensberatung GmbH, netcon-consulting.com
 #
 # Authors:
 # Marc Dierksen (m.dierksen@netcon-consulting.com)
+# Uwe Sommer (u.sommer@netcon-consulting.com)
 # Iyad Dassouki (i.dassouki@netcon-consulting.com)
 
 ###################################################################################################
@@ -15,9 +16,9 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - added installation option for internal DNS resolver
-# - added option for searching various program logs
-# - bugfixes
+# - rework of menu structure
+# - added installation option for Postfix
+# - added config option for local DNS resolver
 #
 ###################################################################################################
 
@@ -25,7 +26,7 @@ declare -g -r VERSION_MENU="$(grep '^# menu.sh V' "$0" | awk '{print $3}')"
 declare -g -r DIALOG='dialog'
 declare -g -r LINK_GITHUB='https://raw.githubusercontent.com/netcon-consulting/pf-menu/master'
 declare -g -r LINK_UPDATE="$LINK_GITHUB/menu.sh"
-declare -g -r TITLE_MAIN='NetCon Postfix Made Easy'
+declare -g -r TITLE_MAIN="NetCon Postfix Made Easy $VERSION_MENU"
 declare -g -r DIR_MAPS='/etc/postfix/maps'
 declare -g -r DIR_CONFIG_SPAMASSASSIN='/etc/spamassassin'
 declare -g DIR_LOG='/disk2/log'
@@ -64,6 +65,7 @@ declare -g -r DEFAULT_EDITOR='vim'
 declare -g -a INSTALL_FEATURE
 
 INSTALL_FEATURE=()
+INSTALL_FEATURE+=('postfix')
 INSTALL_FEATURE+=('resolver')
 INSTALL_FEATURE+=('postfwd')
 INSTALL_FEATURE+=('spamassassin')
@@ -77,6 +79,10 @@ INSTALL_FEATURE+=('logwatch')
 INSTALL_FEATURE+=('logmanager')
 INSTALL_FEATURE+=('reboot')
 INSTALL_FEATURE+=('peer')
+
+# Postfix
+declare -g -r LABEL_INSTALL_POSTFIX='Postfix'
+declare -g -r INSTALL_POSTFIX_PACKAGE='postfix'
 
 # Local DNS resolver
 declare -g -r LABEL_INSTALL_RESOLVER='Local DNS resolver'
@@ -360,25 +366,42 @@ declare -g -r POSTFIX_DKIM_CUSTOM=1
 POSTFIX_DKIM+=('non_smtpd_milters=inet:127.0.0.1:10001')
 
 ###################################################################################################
-# Postfix plugin configs
-declare -g -a POSTFIX_PLUGIN
+# Addon configs
+declare -g -a ADDON_CONFIG
 
-POSTFIX_PLUGIN=()
-POSTFIX_PLUGIN+=('postfwd')
-POSTFIX_PLUGIN+=('dkim')
-POSTFIX_PLUGIN+=('spf')
+ADDON_CONFIG=()
+ADDON_CONFIG+=('resolver')
+ADDON_CONFIG+=('postfwd')
+ADDON_CONFIG+=('spamassassin')
+ADDON_CONFIG+=('rspamd')
+ADDON_CONFIG+=('dkim')
+ADDON_CONFIG+=('spf')
+ADDON_CONFIG+=('fail2ban')
+
+# Local DNS resolver
+declare -g -r LABEL_ADDON_RESOLVER='Local DNS resolver'
+declare -g -r CONFIG_RESOLVER='/etc/bind/named.conf.options'
 
 # Postfwd
-declare -g -r LABEL_CONFIG_PLUGIN_POSTFWD='Postfwd3'
-declare -g -r CONFIG_PLUGIN_POSTFWD='/etc/postfix/postfwd.cf'
+declare -g -r LABEL_ADDON_POSTFWD='Postfwd3'
+declare -g -r CONFIG_POSTFWD='/etc/postfix/postfwd.cf'
+
+# Spamassassin
+declare -g -r LABEL_ADDON_SPAMASSASSIN='Spamassassin'
+
+# Rspamd
+declare -g -r LABEL_ADDON_RSPAMD='Rspamd'
 
 # OpenDKIM
-declare -g -r LABEL_CONFIG_PLUGIN_DKIM='OpenDKIM'
-declare -g -r CONFIG_PLUGIN_DKIM='/etc/opendkim.conf'
+declare -g -r LABEL_ADDON_DKIM='OpenDKIM'
+declare -g -r CONFIG_DKIM='/etc/opendkim.conf'
 
-# SPF
-declare -g -r LABEL_CONFIG_PLUGIN_SPF='SPF-check'
-declare -g -r CONFIG_PLUGIN_SPF='/etc/postfix-policyd-spf-python/policyd-spf.conf'
+# SPF-check
+declare -g -r LABEL_ADDON_SPF='SPF-check'
+declare -g -r CONFIG_SPF='/etc/postfix-policyd-spf-python/policyd-spf.conf'
+
+# Fail2ban
+declare -g -r LABEL_ADDON_FAIL2BAN='Fail2ban'
 
 ###################################################################################################
 # Spamassassin configs
@@ -566,15 +589,15 @@ EMAIL_ADDRESSES+=('logwatch')
 EMAIL_ADDRESSES+=('reboot')
 
 # Automatic update
-LABEL_EMAIL_UPDATE='Automatic update'
+declare -g -r LABEL_EMAIL_UPDATE='Automatic update'
 
 # Logwatch
-LABEL_EMAIL_LOGWATCH='Logwatch'
-EMAIL_LOGWATCH_CHECK=1
+declare -g -r LABEL_EMAIL_LOGWATCH='Logwatch'
+declare -g -r EMAIL_LOGWATCH_CHECK=1
 
 # Reboot alert
-LABEL_EMAIL_REBOOT='Reboot alert'
-EMAIL_REBOOT_CHECK=1
+declare -g -r LABEL_EMAIL_REBOOT='Reboot alert'
+declare -g -r EMAIL_REBOOT_CHECK=1
 
 ###################################################################################################
 # Logs
@@ -587,23 +610,23 @@ PROGRAM_LOGS+=('rspamd')
 PROGRAM_LOGS+=('fail2ban')
 
 # Postfix
-LOG_POSTFIX_DIR="$DIR_LOG/postfix"
-LOG_POSTFIX_LABEL='Postfix'
+declare -g -r LOG_POSTFIX_DIR="$DIR_LOG/postfix"
+declare -g -r LOG_POSTFIX_LABEL='Postfix'
 
 # Spamassassin
-LOG_SPAMASSASSIN_DIR="$DIR_LOG/spamd"
-LOG_SPAMASSASSIN_LABEL='Spamassassin'
-LOG_SPAMASSASSIN_CHECK=1
+declare -g -r LOG_SPAMASSASSIN_DIR="$DIR_LOG/spamd"
+declare -g -r LOG_SPAMASSASSIN_LABEL='Spamassassin'
+declare -g -r LOG_SPAMASSASSIN_CHECK=1
 
 # Rspamd
-LOG_RSPAMD_DIR="$DIR_LOG/rspamd"
-LOG_RSPAMD_LABEL='Rspamd'
-LOG_RSPAMD_CHECK=1
+declare -g -r LOG_RSPAMD_DIR="$DIR_LOG/rspamd"
+declare -g -r LOG_RSPAMD_LABEL='Rspamd'
+declare -g -r LOG_RSPAMD_CHECK=1
 
 # Fail2ban
-LOG_FAIL2BAN_DIR="$DIR_LOG/fail2ban"
-LOG_FAIL2BAN_LABEL='Fail2ban'
-LOG_FAIL2BAN_CHECK=1
+declare -g -r LOG_FAIL2BAN_DIR="$DIR_LOG/fail2ban"
+declare -g -r LOG_FAIL2BAN_LABEL='Fail2ban'
+declare -g -r LOG_FAIL2BAN_CHECK=1
 
 ###################################################################################################
 # Help
@@ -820,6 +843,16 @@ toggle_setting() {
             "$1_enable"
         fi
     fi  
+}
+
+# check whether Postfix is installed
+# parameters:
+# none
+# return values:
+# error code - 0 for installed, 1 for not installed
+check_installed_postfix() {
+    which postfix &>/dev/null
+    [ "$?" = 0 ] && return 0 || return 1
 }
 
 # check whether local DNS resolver is installed
@@ -1636,15 +1669,34 @@ postfix_feature() {
     done
 }
 
-# sync Postfix config with other peer
+# edit config file
 # parameters:
-# none
+# $1 - config file
 # return values:
-# none
-sync_postfix() {
-    show_wait
-    rsync -avzh -e ssh "$DIR_MAPS" mx:"$DIR_MAPS" &>/dev/null
-    ssh mx postfix reload &>/dev/null
+# stderr - 1 if config file changed, 0 if not changed
+edit_config() {
+    declare -r TMP_CONFIG='/tmp/TMPconfig'
+    declare RET_CODE
+
+    if [ -f "$1" ]; then
+        cp -f "$1" "$TMP_CONFIG"
+    else
+        touch "$TMP_CONFIG"
+    fi
+
+    "$TXT_EDITOR" "$TMP_CONFIG"
+
+    diff -N -s "$TMP_CONFIG" "$1" &>/dev/null
+    RET_CODE="$?"
+
+    rm -f "$TMP_CONFIG"
+
+    if [ "$RET_CODE" != 0 ]; then
+        cp -f "$TMP_CONFIG" "$1"
+        return 1
+    fi
+
+    return 0
 }
 
 # select Postfix configuration file for editing in dialog menu
@@ -1653,8 +1705,6 @@ sync_postfix() {
 # return values:
 # none
 postfix_config() {
-    declare -r TAG_SYNC='sync'
-    declare -r TMP_CONFIG='/tmp/TMPconfig'
     declare -a MENU_POSTFIX_CONFIG
     declare CONFIG DIALOG_RET RET_CODE FILE_CONFIG
 
@@ -1664,8 +1714,6 @@ postfix_config() {
         MENU_POSTFIX_CONFIG+=("$CONFIG" "$(eval echo \"\$LABEL_CONFIG_POSTFIX_${CONFIG^^}\")")
     done
 
-    check_installed_peer && MENU_POSTFIX_CONFIG+=("$TAG_SYNC" 'Sync config')
-
     while true; do
         exec 3>&1
         DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Select' --no-tags --extra-button --extra-label 'Help' --menu 'Choose Postfix config to edit' 0 0 0 "${MENU_POSTFIX_CONFIG[@]}" 2>&1 1>&3)"
@@ -1673,112 +1721,16 @@ postfix_config() {
         exec 3>&-
 
         if [ "$RET_CODE" = 0 ]; then
-            if [ "$DIALOG_RET" = "$TAG_SYNC" ]; then
-                sync_postfix
-            else
-                FILE_CONFIG="$(eval echo \"\$CONFIG_POSTFIX_${DIALOG_RET^^}\")"
+            FILE_CONFIG="$(eval echo \"\$CONFIG_POSTFIX_${DIALOG_RET^^}\")"
 
-                if [ -f "$FILE_CONFIG" ]; then
-                    cp -f "$FILE_CONFIG" "$TMP_CONFIG"
-                else
-                    touch "$TMP_CONFIG"
-                fi
+            edit_config "$FILE_CONFIG"
 
-                "$TXT_EDITOR" "$TMP_CONFIG"
-
-                diff -N -s "$TMP_CONFIG" "$FILE_CONFIG" &>/dev/null
-
-                if [ "$?" != 0 ]; then
-                    cp -f "$TMP_CONFIG" "$FILE_CONFIG"
-                    postconf 2>/dev/null | grep -q "hash:$FILE_CONFIG" && postmap "$FILE_CONFIG" &>/dev/null
-                    postfix reload &>/dev/null
-                fi
-
-                rm -f "$TMP_CONFIG"
+            if [ "$?" != 0 ]; then
+                postconf 2>/dev/null | grep -q "hash:$FILE_CONFIG" && postmap "$FILE_CONFIG" &>/dev/null
+                postfix reload &>/dev/null
             fi
         elif [ "$RET_CODE" = 3 ]; then
             show_help "$HELP_POSTFIX_CONFIG"
-        else
-            break
-        fi
-    done
-}
-
-# sync Postfix plugin config with other peer
-# parameters:
-# none
-# return values:
-# none
-sync_plugin() {
-    show_wait
-    if check_installed_dkim; then
-        rsync -avzh -e ssh "$CONFIG_PLUGIN_DKIM" mx:"$CONFIG_PLUGIN_DKIM" &>/dev/null
-        ssh mx systemctl reload opendkim &>/dev/null
-    fi
-    if check_installed_spf; then
-        rsync -avzh -e ssh "$CONFIG_PLUGIN_SPF" mx:"$CONFIG_PLUGIN_SPF" &>/dev/null
-    fi
-    if check_installed_postfwd; then
-        rsync -avzh -e ssh "$CONFIG_PLUGIN_POSTFWD" mx:"$CONFIG_PLUGIN_POSTFWD" &>/dev/null
-        ssh mx systemctl reload postfwd &>/dev/null
-    fi
-}
-
-# select Postfix plugin configuration file for editing in dialog menu
-# parameters:
-# none
-# return values:
-# none
-postfix_plugin() {
-    declare -r TAG_SYNC='sync'
-    declare -r TMP_CONFIG='/tmp/TMPconfig'
-    declare -a MENU_POSTFIX_PLUGIN
-    declare PLUGIN DIALOG_RET RET_CODE FILE_CONFIG
-
-    MENU_POSTFIX_PLUGIN=()
-
-    for PLUGIN in "${POSTFIX_PLUGIN[@]}"; do
-        check_installed_${PLUGIN} && MENU_POSTFIX_PLUGIN+=("$PLUGIN" "$(eval echo \"\$LABEL_CONFIG_PLUGIN_${PLUGIN^^}\")")
-    done
-
-    check_installed_peer && MENU_POSTFIX_PLUGIN+=("$TAG_SYNC" 'Sync config')
-
-    while true; do
-        exec 3>&1
-        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Select' --no-tags --extra-button --extra-label 'Help' --menu 'Choose Postfix plugin config to edit' 0 0 0 "${MENU_POSTFIX_PLUGIN[@]}" 2>&1 1>&3)"
-        RET_CODE="$?"
-        exec 3>&-
-
-        if [ "$RET_CODE" = 0 ]; then
-            if [ "$DIALOG_RET" = "$TAG_SYNC" ]; then
-                sync_plugin
-            else
-                FILE_CONFIG="$(eval echo \"\$CONFIG_PLUGIN_${DIALOG_RET^^}\")"
-
-                if [ -f "$FILE_CONFIG" ]; then
-                    cp -f "$FILE_CONFIG" "$TMP_CONFIG"
-                else
-                    touch "$TMP_CONFIG"
-                fi
-
-                "$TXT_EDITOR" "$TMP_CONFIG"
-
-                diff -N -s "$TMP_CONFIG" "$FILE_CONFIG" &>/dev/null
-
-                if [ "$?" != 0 ]; then
-                    cp -f "$TMP_CONFIG" "$FILE_CONFIG"
-                    case "$DIALOG_RET" in
-                        'postfwd')
-                            systemctl reload postfwd &>/dev/null;;
-                        'dkim')
-                            systemctl reload opendkim &>/dev/null;;
-                    esac
-                fi
-
-                rm -f "$TMP_CONFIG"
-            fi
-        elif [ "$RET_CODE" = 3 ]; then
-            show_help "$HELP_POSTFIX_PLUGIN"
         else
             break
         fi
@@ -1833,6 +1785,108 @@ postfix_info() {
             break
         fi
     done
+}
+
+# sync Postfix config with other peer
+# parameters:
+# none
+# return values:
+# none
+postfix_sync() {
+    show_wait
+    rsync -avzh -e ssh "$DIR_MAPS" mx:"$DIR_MAPS" &>/dev/null
+    ssh mx postfix reload &>/dev/null
+}
+
+# edit Postfwd config
+# parameters:
+# none
+# return values:
+# none
+postfwd_config() {
+    edit_config "$CONFIG_POSTFWD"
+
+    if [ "$?" != 0 ]; then
+        systemctl reload postfwd &>/dev/null
+    fi
+}
+
+# sync Postfwd config
+# parameters:
+# none
+# return values:
+# none
+postfwd_sync() {
+    show_wait
+    rsync -avzh -e ssh "$CONFIG_POSTFWD" mx:"$CONFIG_POSTFWD" &>/dev/null
+    ssh mx systemctl reload postfwd &>/dev/null
+}
+
+# edit local DNS resolver config
+# parameters:
+# none
+# return values:
+# none
+resolver_config() {
+    edit_config "$CONFIG_RESOLVER"
+
+    if [ "$?" != 0 ]; then
+        systemctl reload bind9 &>/dev/null
+    fi
+}
+
+# sync local DNS resolver config
+# parameters:
+# none
+# return values:
+# none
+resolver_sync() {
+    show_wait
+    rsync -avzh -e ssh "$CONFIG_RESOLVER" mx:"$CONFIG_RESOLVER" &>/dev/null
+    ssh mx systemctl reload bind9 &>/dev/null
+}
+
+# edit OpenDKIM config
+# parameters:
+# none
+# return values:
+# none
+dkim_config() {
+    edit_config "$CONFIG_DKIM"
+
+    if [ "$?" != 0 ]; then
+        systemctl reload opendkim &>/dev/null
+    fi
+}
+
+# sync OpenDKIM config
+# parameters:
+# none
+# return values:
+# none
+dkim_sync() {
+    show_wait
+    rsync -avzh -e ssh "$CONFIG_DKIM" mx:"$CONFIG_DKIM" &>/dev/null
+    ssh mx systemctl reload opendkim &>/dev/null
+}
+
+# edit SPF-check config
+# parameters:
+# none
+# return values:
+# none
+spf_config() {
+    edit_config "$CONFIG_SPF"
+}
+
+# sync SPF-check config
+# parameters:
+# none
+# return values:
+# none
+spf_sync() {
+    show_wait
+    rsync -avzh -e ssh "$CONFIG_SPF" mx:"$CONFIG_SPF" &>/dev/null
 }
 
 # check Rspamd black-/whitelists status
@@ -2354,29 +2408,12 @@ rspamd_feature() {
     done
 }
 
-# sync Rspamd config with other peer
-# parameters:
-# none
-# return values:
-# none
-sync_rspamd() {
-    show_wait
-    rsync -avzh -e ssh "$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_WHITELIST_IP" mx:"$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_WHITELIST_IP" &>/dev/null
-    rsync -avzh -e ssh "$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_WHITELIST_DOMAIN" mx:"$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_WHITELIST_DOMAIN" &>/dev/null
-    rsync -avzh -e ssh "$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_WHITELIST_FROM" mx:"$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_WHITELIST_FROM" &>/dev/null
-    rsync -avzh -e ssh "$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_WHITELIST_TO" mx:"$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_WHITELIST_TO" &>/dev/null
-    rsync -avzh -e ssh "$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_BLACKLIST_COUNTRY" mx:"$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_BLACKLIST_COUNTRY" &>/dev/null
-    ssh mx systemctl reload rspamd &>/dev/null
-}
-
 # select Rspamd configuration file for editing in dialog menu
 # parameters:
 # none
 # return values:
 # none
 rspamd_config() {
-    declare -r TAG_SYNC='sync'
-    declare -r TMP_CONFIG='/tmp/TMPconfig'
     declare -a MENU_RSPAMD_CONFIG
     declare CONFIG DIALOG_RET RET_CODE FILE_CONFIG
 
@@ -2386,8 +2423,6 @@ rspamd_config() {
         MENU_RSPAMD_CONFIG+=("$CONFIG" "$(eval echo \"\$LABEL_CONFIG_RSPAMD_${CONFIG^^}\")")
     done
 
-    check_installed_peer && MENU_RSPAMD_CONFIG+=("$TAG_SYNC" 'Sync config')
-
     while true; do
         exec 3>&1
         DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Select' --no-tags --extra-button --extra-label 'Help' --menu 'Choose Rspamd config to edit' 0 0 0 "${MENU_RSPAMD_CONFIG[@]}" 2>&1 1>&3)"
@@ -2395,27 +2430,10 @@ rspamd_config() {
         exec 3>&-
 
         if [ "$RET_CODE" = 0 ]; then
-            if [ "$DIALOG_RET" = "$TAG_SYNC" ]; then
-                sync_rspamd
-            else
-                FILE_CONFIG="$(eval echo \"\$CONFIG_RSPAMD_${DIALOG_RET^^}\")"
+            edit_config "$(eval echo \"\$CONFIG_RSPAMD_${DIALOG_RET^^}\")"
 
-                if [ -f "$FILE_CONFIG" ]; then
-                    cp -f "$FILE_CONFIG" "$TMP_CONFIG"
-                else
-                    touch "$TMP_CONFIG"
-                fi
-
-                "$TXT_EDITOR" "$TMP_CONFIG"
-
-                diff -N -s "$TMP_CONFIG" "$FILE_CONFIG" &>/dev/null
-
-                if [ "$?" != 0 ]; then
-                    cp -f "$TMP_CONFIG" "$FILE_CONFIG"
-                    systemctl reload rspamd &>/dev/null
-                fi
-
-                rm -f "$TMP_CONFIG"
+            if [ "$?" != 0 ]; then
+                systemctl reload rspamd &>/dev/null
             fi
         elif [ "$RET_CODE" = 3 ]; then
             show_help "$HELP_RSPAMD_CONFIG"
@@ -2423,6 +2441,21 @@ rspamd_config() {
             break
         fi
     done
+}
+
+# sync Rspamd config with other peer
+# parameters:
+# none
+# return values:
+# none
+rspamd_sync() {
+    show_wait
+    rsync -avzh -e ssh "$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_WHITELIST_IP" mx:"$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_WHITELIST_IP" &>/dev/null
+    rsync -avzh -e ssh "$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_WHITELIST_DOMAIN" mx:"$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_WHITELIST_DOMAIN" &>/dev/null
+    rsync -avzh -e ssh "$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_WHITELIST_FROM" mx:"$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_WHITELIST_FROM" &>/dev/null
+    rsync -avzh -e ssh "$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_WHITELIST_TO" mx:"$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_WHITELIST_TO" &>/dev/null
+    rsync -avzh -e ssh "$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_BLACKLIST_COUNTRY" mx:"$DIR_LIB_RSPAMD/$CONFIG_RSPAMD_BLACKLIST_COUNTRY" &>/dev/null
+    ssh mx systemctl reload rspamd &>/dev/null
 }
 
 # show Rspamd info & stats
@@ -2441,7 +2474,7 @@ rspamd_info() {
 # none
 # return values:
 # none
-sync_spamassassin() {
+spamassassin_sync() {
     show_wait
     rsync -avzh -e ssh "$DIR_CONFIG_SPAMASSASSIN" mx:"$DIR_CONFIG_SPAMASSASSIN" &>/dev/null
     ssh mx systemctl reload spamassassin &>/dev/null
@@ -2453,8 +2486,6 @@ sync_spamassassin() {
 # return values:
 # none
 spamassassin_config() {
-    declare -r TAG_SYNC='sync'
-    declare -r TMP_CONFIG='/tmp/TMPconfig'
     declare -a MENU_SPAMASSASSIN_CONFIG
     declare CONFIG DIALOG_RET RET_CODE FILE_CONFIG
 
@@ -2464,8 +2495,6 @@ spamassassin_config() {
         MENU_SPAMASSASSIN_CONFIG+=("$CONFIG" "$(eval echo \"\$LABEL_CONFIG_SPAMASSASSIN_${CONFIG^^}\")")
     done
 
-    check_installed_peer && MENU_SPAMASSASSIN_CONFIG+=("$TAG_SYNC" 'Sync config')
-
     while true; do
         exec 3>&1
         DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Select' --no-tags --extra-button --extra-label 'Help' --menu 'Choose Spamassassin config to edit' 0 0 0 "${MENU_SPAMASSASSIN_CONFIG[@]}" 2>&1 1>&3)"
@@ -2473,27 +2502,10 @@ spamassassin_config() {
         exec 3>&-
 
         if [ "$RET_CODE" = 0 ]; then
-            if [ "$DIALOG_RET" = "$TAG_SYNC" ]; then
-                sync_spamassassin
-            else
-                FILE_CONFIG="$(eval echo \"\$CONFIG_SPAMASSASSIN_${DIALOG_RET^^}\")"
+            edit_config "$(eval echo \"\$CONFIG_SPAMASSASSIN_${DIALOG_RET^^}\")"
 
-                if [ -f "$FILE_CONFIG" ]; then
-                    cp -f "$FILE_CONFIG" "$TMP_CONFIG"
-                else
-                    touch "$TMP_CONFIG"
-                fi
-
-                "$TXT_EDITOR" "$TMP_CONFIG"
-
-                diff -N -s "$TMP_CONFIG" "$FILE_CONFIG" &>/dev/null
-
-                if [ "$?" != 0 ]; then
-                    cp -f "$TMP_CONFIG" "$FILE_CONFIG"
-                    systemctl reload spamassassin &>/dev/null
-                fi
-
-                rm -f "$TMP_CONFIG"
+            if [ "$?" != 0 ]; then
+                systemctl reload spamassassin &>/dev/null
             fi
         elif [ "$RET_CODE" = 3 ]; then
             show_help "$HELP_SPAMASSASSIN_CONFIG"
@@ -2570,17 +2582,6 @@ spamassassin_info() {
     done
 }
 
-# sync Fail2ban config with other peer
-# parameters:
-# none
-# return values:
-# none
-sync_fail2ban() {
-    show_wait
-    rsync -avzh -e ssh "$CONFIG_FAIL2BAN" mx:"$CONFIG_FAIL2BAN"
-    ssh mx systemctl restart fail2ban
-}
-
 # select Fail2ban configuration file for editing in dialog menu
 # parameters:
 # none
@@ -2588,7 +2589,6 @@ sync_fail2ban() {
 # none
 fail2ban_config() {
     declare -r TAG_SYNC='sync'
-    declare -r TMP_CONFIG='/tmp/TMPconfig'
     declare -a MENU_FAIL2BAN_CONFIG
     declare CONFIG DIALOG_RET RET_CODE FILE_CONFIG
 
@@ -2612,8 +2612,6 @@ fail2ban_config() {
             else
                 FILE_CONFIG="$(eval echo \"\$CONFIG_FAIL2BAN_${DIALOG_RET^^}\")"
 
-                rm -f "$TMP_CONFIG"
-
                 if [ -d "$FILE_CONFIG" ]; then
                     exec 3>&1
                     FILE_CONFIG="$(get_file 'Select config file' "$FILE_CONFIG")"
@@ -2621,25 +2619,14 @@ fail2ban_config() {
                     exec 3>&-
 
                     if [ "$RET_CODE" = 0 ] && ! [ -z "$FILE_CONFIG" ]; then
-                        cp -f "$FILE_CONFIG" "$TMP_CONFIG"
+                        edit_config "$FILE_CONFIG"
                     fi
-                elif [ -f "$FILE_CONFIG" ]; then
-                    cp -f "$FILE_CONFIG" "$TMP_CONFIG"
                 else
-                    touch "$TMP_CONFIG"
+                    edit_config "$FILE_CONFIG"
                 fi
 
-                if [ -f "$TMP_CONFIG" ]; then
-                    "$TXT_EDITOR" "$TMP_CONFIG"
-
-                    diff -N -s "$TMP_CONFIG" "$FILE_CONFIG" &>/dev/null
-
-                    if [ "$?" != 0 ]; then
-                        cp -f "$TMP_CONFIG" "$FILE_CONFIG"
-                        systemctl restart fail2ban
-                    fi
-
-                    rm -f "$TMP_CONFIG"
+                if [ "$?" != 0 ]; then
+                    systemctl restart fail2ban
                 fi
             fi
         elif [ "$RET_CODE" = 3 ]; then
@@ -2648,6 +2635,17 @@ fail2ban_config() {
             break
         fi
     done
+}
+
+# sync Fail2ban config with other peer
+# parameters:
+# none
+# return values:
+# none
+fail2ban_sync() {
+    show_wait
+    rsync -avzh -e ssh "$CONFIG_FAIL2BAN" mx:"$CONFIG_FAIL2BAN"
+    ssh mx systemctl restart fail2ban
 }
 
 # add IP addresses to jail
@@ -2795,6 +2793,55 @@ show_update() {
     show_info 'Pending updates' "$INFO"
 }
 
+# select log in dialog menu
+# parameters:
+# none
+# return values:
+# none
+show_log() {
+    declare PROGRAM_LOG RET_CODE SEARCH_FILTER SEARCH_RESULT
+    declare -a MENU_LOG
+
+    MENU_LOG=()
+    for PROGRAM_LOG in "${PROGRAM_LOGS[@]}"; do
+        if [ "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_CHECK\")" != 1 ] || check_installed_$PROGRAM_LOG; then
+            MENU_LOG+=("$PROGRAM_LOG" "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_LABEL\")")
+        fi
+    done
+
+    while true; do
+        exec 3>&1
+        PROGRAM_LOG="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_LOG[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            exec 3>&1
+            SEARCH_FILTER="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --title 'Search logs' --ok-label 'Current log' --extra-button --extra-label 'All logs' --inputbox 'Enter search filter' 0 0 '' 2>&1 1>&3)"
+            RET_CODE="$?"
+            exec 3>&-
+
+            if ! [ -z "$SEARCH_FILTER" ]; then
+                if [ "$RET_CODE" = 0 ] || [ "$RET_CODE" = 3 ]; then
+                    if [ "$RET_CODE" = 0 ]; then
+                        SEARCH_RESULT="$(grep "$SEARCH_FILTER" "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_DIR\")/current.log")"
+                    else
+                        SEARCH_RESULT="$(grep "$SEARCH_FILTER" -h "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_DIR\")"/*.log)"
+                    fi
+
+                    [ -z "$SEARCH_RESULT" ] && SEARCH_RESULT='No result'
+
+                    show_info 'Search results' "$SEARCH_RESULT"
+                fi
+            fi
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_LOG"
+        else
+            break
+        fi
+    done
+}
+
 # select system info to show in dialog menu
 # parameters:
 # none
@@ -2809,6 +2856,7 @@ system_info() {
     MENU_OTHER_INFO+=('firewall' 'Firewall rules')
     MENU_OTHER_INFO+=('install' 'Install log')
     MENU_OTHER_INFO+=('update' 'Pending updates')
+    check_installed_logmanager && MENU_OTHER_INFO+=('log' 'Logs')
 
     while true; do
         exec 3>&1
@@ -3059,6 +3107,16 @@ general_settings() {
     done
 }
 
+# install Postfix
+# parameters:
+# none
+# return values:
+# none
+install_postfix() {
+    show_wait
+    apt install -y postfix &>/dev/null
+}
+
 # install local DNS resolver
 # parameters:
 # none
@@ -3084,7 +3142,7 @@ install_resolver() {
     show_wait
     apt install -y bind9 &>/dev/null
 
-    printf '%s' $PACKED_CONFIG | base64 -d | gunzip > /etc/bind/named.conf.options
+    printf '%s' $PACKED_CONFIG | base64 -d | gunzip > "$CONFIG_RESOLVER"
     mkdir -p /var/log/named
     systemctl restart bind9 &>/dev/null
 }
@@ -3317,19 +3375,6 @@ install_peer() {
     fi
 }
 
-# sync all config
-# parameters:
-# none
-# return values:
-# none
-sync_all() {
-    sync_postfix
-    sync_plugin
-    check_installed_spamassassin && sync_spamassassin
-    check_installed_rspamd && sync_rspamd
-    check_installed_fail2ban && sync_fail2ban
-}
-
 # select feature to install in dialog menu
 # parameters:
 # none
@@ -3428,23 +3473,23 @@ menu_install() {
 menu_postfix() {
     declare -r TAG_FEATURE='postfix_feature'
     declare -r TAG_CONFIG='postfix_config'
-    declare -r TAG_PLUGIN='postfix_plugin'
     declare -r TAG_INFO='postfix_info'
-    declare -r LABEL_FEATURE='Feature'
+    declare -r TAG_SYNC='postfix_sync'
+    declare -r LABEL_FEATURE='Settings'
     declare -r LABEL_CONFIG='Maps'
-    declare -r LABEL_PLUGIN='Plugin config'
     declare -r LABEL_INFO='Info & Stats'
+    declare -r LABEL_SYNC='Sync config'
     declare -a MENU_POSTFIX
 
     MENU_POSTFIX=()
     MENU_POSTFIX+=("$TAG_FEATURE" "$LABEL_FEATURE")
     MENU_POSTFIX+=("$TAG_CONFIG" "$LABEL_CONFIG")
-    MENU_POSTFIX+=("$TAG_PLUGIN" "$LABEL_PLUGIN")
     MENU_POSTFIX+=("$TAG_INFO" "$LABEL_INFO")
+    check_installed_peer && MENU_POSTFIX+=("$TAG_SYNC" "$LABEL_SYNC")
 
     while true; do
         exec 3>&1
-        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_POSTFIX[@]}" 2>&1 1>&3)"
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title 'Postfix' --menu '' 0 0 0 "${MENU_POSTFIX[@]}" 2>&1 1>&3)"
         RET_CODE="$?"
         exec 3>&-
 
@@ -3458,28 +3503,156 @@ menu_postfix() {
     done
 }
 
+# select Postfwd option in dialog menu
+# parameters:
+# none
+# return values:
+# none
+menu_resolver() {
+    declare -r TAG_CONFIG='resolver_config'
+    declare -r TAG_SYNC='resolver_sync'
+    declare -r LABEL_CONFIG='Config'
+    declare -r LABEL_SYNC='Sync config'
+    declare -a MENU_RESOLVER
+
+    MENU_RESOLVER=()
+    MENU_RESOLVER+=("$TAG_CONFIG" "$LABEL_CONFIG")
+    check_installed_peer && MENU_RESOLVER+=("$TAG_SYNC" "$LABEL_SYNC")
+
+    while true; do
+        exec 3>&1
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title 'Local DNS resolver' --menu '' 0 0 0 "${MENU_RESOLVER[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            "$DIALOG_RET"
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_RESOLVER"
+        else
+            break
+        fi
+    done
+}
+
+# select Postfwd option in dialog menu
+# parameters:
+# none
+# return values:
+# none
+menu_postfwd() {
+    declare -r TAG_CONFIG='postfwd_config'
+    declare -r TAG_SYNC='postfwd_sync'
+    declare -r LABEL_CONFIG='Config'
+    declare -r LABEL_SYNC='Sync config'
+    declare -a MENU_POSTFWD
+
+    MENU_POSTFWD=()
+    MENU_POSTFWD+=("$TAG_CONFIG" "$LABEL_CONFIG")
+    check_installed_peer && MENU_POSTFWD+=("$TAG_SYNC" "$LABEL_SYNC")
+
+    while true; do
+        exec 3>&1
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title 'Postfwd' --menu '' 0 0 0 "${MENU_POSTFWD[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            "$DIALOG_RET"
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_POSTFWD"
+        else
+            break
+        fi
+    done
+}
+
+# select OpenDKIM option in dialog menu
+# parameters:
+# none
+# return values:
+# none
+menu_dkim() {
+    declare -r TAG_CONFIG='dkim_config'
+    declare -r TAG_SYNC='dkim_sync'
+    declare -r LABEL_CONFIG='Config'
+    declare -r LABEL_SYNC='Sync config'
+    declare -a MENU_DKIM
+
+    MENU_DKIM=()
+    MENU_DKIM+=("$TAG_CONFIG" "$LABEL_CONFIG")
+    check_installed_peer && MENU_DKIM+=("$TAG_SYNC" "$LABEL_SYNC")
+
+    while true; do
+        exec 3>&1
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title 'OpenDKIM' --menu '' 0 0 0 "${MENU_DKIM[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            "$DIALOG_RET"
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_DKIM"
+        else
+            break
+        fi
+    done
+}
+
+# select SPF-check option in dialog menu
+# parameters:
+# none
+# return values:
+# none
+menu_spf() {
+    declare -r TAG_CONFIG='spf_config'
+    declare -r TAG_SYNC='spf_sync'
+    declare -r LABEL_CONFIG='Config'
+    declare -r LABEL_SYNC='Sync config'
+    declare -a MENU_SPF
+
+    MENU_SPF=()
+    MENU_SPF+=("$TAG_CONFIG" "$LABEL_CONFIG")
+    check_installed_peer && MENU_SPF+=("$TAG_SYNC" "$LABEL_SYNC")
+
+    while true; do
+        exec 3>&1
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title 'SPF-check' --menu '' 0 0 0 "${MENU_SPF[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            "$DIALOG_RET"
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_SPF"
+        else
+            break
+        fi
+    done
+}
+
 # select Spamassassin option in dialog menu
 # parameters:
 # none
 # return values:
 # none
 menu_spamassassin() {
-    declare -r TAG_FEATURE='spamassassin_feature'
     declare -r TAG_CONFIG='spamassassin_config'
     declare -r TAG_INFO='spamassassin_info'
-    declare -r LABEL_FEATURE='Feature'
+    declare -r TAG_SYNC='spamassassin_sync'
     declare -r LABEL_CONFIG='Config'
     declare -r LABEL_INFO='Info & Stats'
+    declare -r LABEL_SYNC='Sync config'
     declare -a MENU_SPAMASSASSIN
 
     MENU_SPAMASSASSIN=()
-#    MENU_SPAMASSASSIN+=("$TAG_FEATURE" "$LABEL_FEATURE")
     MENU_SPAMASSASSIN+=("$TAG_CONFIG" "$LABEL_CONFIG")
     MENU_SPAMASSASSIN+=("$TAG_INFO" "$LABEL_INFO")
+    check_installed_peer && MENU_SPAMASSASSIN+=("$TAG_SYNC" "$LABEL_SYNC")
 
     while true; do
         exec 3>&1
-        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_SPAMASSASSIN[@]}" 2>&1 1>&3)"
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title 'Spamassassin' --menu '' 0 0 0 "${MENU_SPAMASSASSIN[@]}" 2>&1 1>&3)"
         RET_CODE="$?"
         exec 3>&-
 
@@ -3502,19 +3675,22 @@ menu_rspamd() {
     declare -r TAG_FEATURE='rspamd_feature'
     declare -r TAG_CONFIG='rspamd_config'
     declare -r TAG_INFO='rspamd_info'
+    declare -r TAG_SYNC='rspamd_sync'
     declare -r LABEL_FEATURE='Feature'
     declare -r LABEL_CONFIG='Config'
     declare -r LABEL_INFO='Info & Stats'
+    declare -r LABEL_SYNC='Sync config'
     declare -a MENU_RSPAMD
 
     MENU_RSPAMD=()
     MENU_RSPAMD+=("$TAG_FEATURE" "$LABEL_FEATURE")
     MENU_RSPAMD+=("$TAG_CONFIG" "$LABEL_CONFIG")
     MENU_RSPAMD+=("$TAG_INFO" "$LABEL_INFO")
+    check_installed_peer && MENU_RSPAMD+=("$TAG_SYNC" "$LABEL_SYNC")
 
     while true; do
         exec 3>&1
-        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_RSPAMD[@]}" 2>&1 1>&3)"
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title 'Rspamd' --menu '' 0 0 0 "${MENU_RSPAMD[@]}" 2>&1 1>&3)"
         RET_CODE="$?"
         exec 3>&-
 
@@ -3536,17 +3712,20 @@ menu_rspamd() {
 menu_fail2ban() {
     declare -r TAG_CONFIG='fail2ban_config'
     declare -r TAG_JAIL='fail2ban_jail'
+    declare -r TAG_SYNC='fail2ban_sync'
     declare -r LABEL_CONFIG='Config'
     declare -r LABEL_JAIL='Jails'
+    declare -r LABEL_SYNC='Sync config'
     declare -a MENU_FAIL2BAN
 
     MENU_FAIL2BAN=()
     MENU_FAIL2BAN+=("$TAG_CONFIG" "$LABEL_CONFIG")
     MENU_FAIL2BAN+=("$TAG_JAIL" "$LABEL_JAIL")
+    check_installed_peer && MENU_FAIL2BAN+=("$TAG_SYNC" "$LABEL_SYNC")
 
     while true; do
         exec 3>&1
-        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_FAIL2BAN[@]}" 2>&1 1>&3)"
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title 'Fail2ban' --menu '' 0 0 0 "${MENU_FAIL2BAN[@]}" 2>&1 1>&3)"
         RET_CODE="$?"
         exec 3>&-
 
@@ -3554,6 +3733,34 @@ menu_fail2ban() {
             "$DIALOG_RET"
         elif [ "$RET_CODE" = 3 ]; then
             show_help "$HELP_FAIL2BAN"
+        else
+            break
+        fi
+    done
+}
+
+# select addon in dialog menu
+# parameters:
+# none
+# return values:
+# none
+menu_addon() {
+    declare -a MENU_ADDON
+
+    for TAG_ADDON in "${ADDON_CONFIG[@]}"; do
+        "check_installed_$TAG_ADDON" && MENU_ADDON+=("$TAG_ADDON" "$(eval echo \"\$LABEL_ADDON_${TAG_ADDON^^}\")")
+    done
+
+    while true; do
+        exec 3>&1
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title 'Addon' --menu '' 0 0 0 "${MENU_ADDON[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            "menu_$DIALOG_RET"
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_ADDON"
         else
             break
         fi
@@ -3578,7 +3785,7 @@ menu_misc() {
 
     while true; do
         exec 3>&1
-        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_MISC[@]}" 2>&1 1>&3)"
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title 'Misc' --menu '' 0 0 0 "${MENU_MISC[@]}" 2>&1 1>&3)"
         RET_CODE="$?"
         exec 3>&-
 
@@ -3592,52 +3799,14 @@ menu_misc() {
     done
 }
 
-# select log in dialog menu
+# sync all config
 # parameters:
 # none
 # return values:
 # none
-menu_log() {
-    declare PROGRAM_LOG RET_CODE SEARCH_FILTER SEARCH_RESULT
-    declare -a MENU_LOG
-
-    MENU_LOG=()
-    for PROGRAM_LOG in "${PROGRAM_LOGS[@]}"; do
-        if [ "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_CHECK\")" != 1 ] || check_installed_$PROGRAM_LOG; then
-            MENU_LOG+=("$PROGRAM_LOG" "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_LABEL\")")
-        fi
-    done
-
-    while true; do
-        exec 3>&1
-        PROGRAM_LOG="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_LOG[@]}" 2>&1 1>&3)"
-        RET_CODE="$?"
-        exec 3>&-
-
-        if [ "$RET_CODE" = 0 ]; then
-            exec 3>&1
-            SEARCH_FILTER="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --title 'Search logs' --ok-label 'Current log' --extra-button --extra-label 'All logs' --inputbox 'Enter search filter' 0 0 '' 2>&1 1>&3)"
-            RET_CODE="$?"
-            exec 3>&-
-
-            if ! [ -z "$SEARCH_FILTER" ]; then
-                if [ "$RET_CODE" = 0 ] || [ "$RET_CODE" = 3 ]; then
-                    if [ "$RET_CODE" = 0 ]; then
-                        SEARCH_RESULT="$(grep "$SEARCH_FILTER" "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_DIR\")/current.log")"
-                    else
-                        SEARCH_RESULT="$(grep "$SEARCH_FILTER" -h "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_DIR\")"/*.log)"
-                    fi
-
-                    [ -z "$SEARCH_RESULT" ] && SEARCH_RESULT='No result'
-
-                    show_info 'Search results' "$SEARCH_RESULT"
-                fi
-            fi
-        elif [ "$RET_CODE" = 3 ]; then
-            show_help "$HELP_LOG"
-        else
-            break
-        fi
+sync_all() {
+    for CONFIG in postfix postfwd dkim spf spamassassin rspamd fail2ban; do
+        "check_installed_$CONFIG" && "${CONFIG}_sync"
     done
 }
 
@@ -3789,22 +3958,16 @@ write_examples() {
 declare -r CONFIG_BASH="$HOME/.bashrc"
 declare -r TAG_MENU_INSTALL='menu_install'
 declare -r TAG_MENU_POSTFIX='menu_postfix'
-declare -r TAG_MENU_SPAMASSASSIN='menu_spamassassin'
-declare -r TAG_MENU_RSPAMD='menu_rspamd'
-declare -r TAG_MENU_FAIL2BAN='menu_fail2ban'
+declare -r TAG_MENU_ADDON='menu_addon'
 declare -r TAG_MENU_MISC='menu_misc'
-declare -r TAG_MENU_LOG='menu_log'
 declare -r TAG_MENU_SYNC_ALL='sync_all'
 declare -r LABEL_MENU_INSTALL='Install'
 declare -r LABEL_MENU_POSTFIX='Postfix'
-declare -r LABEL_MENU_SPAMASSASSIN='Spamassassin'
-declare -r LABEL_MENU_RSPAMD='Rspamd'
-declare -r LABEL_MENU_FAIL2BAN='Fail2ban'
+declare -r LABEL_MENU_ADDON='Addon'
 declare -r LABEL_MENU_MISC='Misc'
-declare -r LABEL_MENU_LOG='Logs'
 declare -r LABEL_SYNC_ALL='Sync all config'
 declare -a MENU_MAIN
-declare DIALOG_RET RET_CODE
+declare DIALOG_RET RET_CODE TAG_ADDON
 
 if ! check_ubuntu; then
     show_info 'Incompatible Linux distro' 'This tool only supports Ubuntu 18.04 or later.'
@@ -3822,12 +3985,14 @@ write_examples
 while true; do
     MENU_MAIN=()
     MENU_MAIN+=("$TAG_MENU_INSTALL" "$LABEL_MENU_INSTALL")
-    MENU_MAIN+=("$TAG_MENU_POSTFIX" "$LABEL_MENU_POSTFIX")
-    check_installed_spamassassin && MENU_MAIN+=("$TAG_MENU_SPAMASSASSIN" "$LABEL_MENU_SPAMASSASSIN")
-    check_installed_rspamd && MENU_MAIN+=("$TAG_MENU_RSPAMD" "$LABEL_MENU_RSPAMD")
-    check_installed_fail2ban && MENU_MAIN+=("$TAG_MENU_FAIL2BAN" "$LABEL_MENU_FAIL2BAN")
+    check_installed_postfix && MENU_MAIN+=("$TAG_MENU_POSTFIX" "$LABEL_MENU_POSTFIX")
+    for TAG_ADDON in "${ADDON_CONFIG[@]}"; do
+        if "check_installed_$TAG_ADDON"; then
+            MENU_MAIN+=("$TAG_MENU_ADDON" "$LABEL_MENU_ADDON")
+            break
+        fi
+    done
     MENU_MAIN+=("$TAG_MENU_MISC" "$LABEL_MENU_MISC")
-    check_installed_logmanager && MENU_MAIN+=("$TAG_MENU_LOG" "$LABEL_MENU_LOG")
     check_installed_peer && MENU_MAIN+=("$TAG_SYNC_ALL" "$LABEL_SYNC_ALL")
 
     exec 3>&1
