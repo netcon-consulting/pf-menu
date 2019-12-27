@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.6.0 for Postfix
+# menu.sh V1.7.0 for Postfix
 #
 # Copyright (c) 2019 NetCon Unternehmensberatung GmbH, netcon-consulting.com
 #
@@ -17,8 +17,7 @@
 #
 # Changelog:
 # - rework of menu structure
-# - added installation option for Postfix
-# - added config option for local DNS resolver
+# - for the local DNS resolver added options for managing local and forward zones
 #
 ###################################################################################################
 
@@ -126,30 +125,28 @@ declare -g -r LABEL_INSTALL_LOGWATCH='Logwatch'
 declare -g -r INSTALL_LOGWATCH_PACKAGE='logwatch'
 
 # Log-manager
-declare -g -r LABEL_INSTALL_LOGMANAGER='Log-manager'
+declare -g -r LABEL_INSTALL_LOGMANAGER='NetCon Log-manager'
 
 # Reboot alert
 declare -g -r LABEL_INSTALL_REBOOT='Reboot alert'
 
 # Setup peer
-declare -g -r LABEL_INSTALL_PEER='Setup peer'
+declare -g -r LABEL_INSTALL_PEER='Setup cluster peer'
 
 ###################################################################################################
-# Postfix configs
-declare -g -a POSTFIX_CONFIG
+# Postfix server configs
+declare -g -a POSTFIX_CONFIG_SERVER
 
-POSTFIX_CONFIG=()
-POSTFIX_CONFIG+=('postscreen')
-POSTFIX_CONFIG+=('client')
-POSTFIX_CONFIG+=('sender')
-POSTFIX_CONFIG+=('recipient')
-POSTFIX_CONFIG+=('helo')
-POSTFIX_CONFIG+=('transport')
-POSTFIX_CONFIG+=('esmtp')
-POSTFIX_CONFIG+=('rewrite')
-POSTFIX_CONFIG+=('routing')
-POSTFIX_CONFIG+=('milter')
-POSTFIX_CONFIG+=('header')
+POSTFIX_CONFIG_SERVER=()
+POSTFIX_CONFIG_SERVER+=('postscreen')
+POSTFIX_CONFIG_SERVER+=('client')
+POSTFIX_CONFIG_SERVER+=('sender')
+POSTFIX_CONFIG_SERVER+=('recipient')
+POSTFIX_CONFIG_SERVER+=('helo')
+POSTFIX_CONFIG_SERVER+=('esmtp')
+POSTFIX_CONFIG_SERVER+=('rewrite')
+POSTFIX_CONFIG_SERVER+=('milter')
+POSTFIX_CONFIG_SERVER+=('header')
 
 # Postscreen access IPs
 declare -g -r LABEL_CONFIG_POSTFIX_POSTSCREEN='Postscreen access IPs'
@@ -171,10 +168,6 @@ declare -g -r CONFIG_POSTFIX_RECIPIENT="$DIR_MAPS/check_recipient_access"
 declare -g -r LABEL_CONFIG_POSTFIX_HELO='HELO access'
 declare -g -r CONFIG_POSTFIX_HELO="$DIR_MAPS/check_helo_access"
 
-# Transport map
-declare -g -r LABEL_CONFIG_POSTFIX_TRANSPORT='Transport map'
-declare -g -r CONFIG_POSTFIX_TRANSPORT="$DIR_MAPS/transport"
-
 # ESMTP restrictions
 declare -g -r LABEL_CONFIG_POSTFIX_ESMTP='ESMTP restrictions'
 declare -g -r CONFIG_POSTFIX_ESMTP="$DIR_MAPS/esmtp_access"
@@ -183,10 +176,6 @@ declare -g -r CONFIG_POSTFIX_ESMTP="$DIR_MAPS/esmtp_access"
 declare -g -r LABEL_CONFIG_POSTFIX_REWRITE='Sender rewriting'
 declare -g -r CONFIG_POSTFIX_REWRITE="$DIR_MAPS/sender_canonical_maps"
 
-# Sender-dependent routing
-declare -g -r LABEL_CONFIG_POSTFIX_ROUTING='Sender-dependent routing'
-declare -g -r CONFIG_POSTFIX_ROUTING="$DIR_MAPS/relayhost_map"
-
 # Milter bypass
 declare -g -r LABEL_CONFIG_POSTFIX_MILTER='Milter bypass'
 declare -g -r CONFIG_POSTFIX_MILTER="$DIR_MAPS/smtpd_milter_map"
@@ -194,6 +183,22 @@ declare -g -r CONFIG_POSTFIX_MILTER="$DIR_MAPS/smtpd_milter_map"
 # Header checks
 declare -g -r LABEL_CONFIG_POSTFIX_HEADER='Header checks'
 declare -g -r CONFIG_POSTFIX_HEADER="$DIR_MAPS/check_header"
+
+###################################################################################################
+# Postfix client configs
+declare -g -a POSTFIX_CONFIG_CLIENT
+
+POSTFIX_CONFIG_CLIENT=()
+POSTFIX_CONFIG_CLIENT+=('transport')
+POSTFIX_CONFIG_CLIENT+=('routing')
+
+# Transport map
+declare -g -r LABEL_CONFIG_POSTFIX_TRANSPORT='Transport map'
+declare -g -r CONFIG_POSTFIX_TRANSPORT="$DIR_MAPS/transport"
+
+# Sender-dependent routing
+declare -g -r LABEL_CONFIG_POSTFIX_ROUTING='Sender-dependent routing'
+declare -g -r CONFIG_POSTFIX_ROUTING="$DIR_MAPS/relayhost_map"
 
 ###################################################################################################
 # Postfix features
@@ -381,6 +386,9 @@ ADDON_CONFIG+=('fail2ban')
 # Local DNS resolver
 declare -g -r LABEL_ADDON_RESOLVER='Local DNS resolver'
 declare -g -r CONFIG_RESOLVER='/etc/bind/named.conf.options'
+declare -g -r CONFIG_RESOLVER_FORWARD='/etc/bind/named.conf.forward-zones'
+declare -g -r CONFIG_RESOLVER_LOCAL='/etc/bind/named.conf.local-zones'
+declare -g -r DIR_ZONE='/var/cache/bind'
 
 # Postfwd
 declare -g -r LABEL_ADDON_POSTFWD='Postfwd3'
@@ -784,7 +792,7 @@ get_input() {
     return "$RET_CODE"
 }
 
-# select file in dialog fselect (IMPORTANT: function call needs to be preceeded by 'exec 3>&1' and followed by 'exec 3>&-')
+# select file in dialog menu (IMPORTANT: function call needs to be preceeded by 'exec 3>&1' and followed by 'exec 3>&-')
 # parameters:
 # $1 - dialog title
 # $2 - directory
@@ -792,18 +800,25 @@ get_input() {
 # stdout - selected file path
 # error code - 0 for Ok, 1 for Cancel
 get_file() {
+    declare -r LIST_FILE="$(ls "$2")"
     declare DIALOG_RET RET_CODE
+    declare -a MENU_FILE
 
-    DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --title "$1" --fselect "$2" 14 58 2>&1 1>&3)"
+    MENU_FILE=()
+
+    if [ -z "$LIST_FILE" ]; then
+        MENU_FILE+=('' 'No files')
+    else
+        for NAME_FILE in $LIST_FILE; do
+            MENU_FILE+=("$NAME_FILE" "$NAME_FILE")
+        done
+    fi
+
+    DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --title "$1" --ok-label 'Select' --no-tags --menu '' 0 0 0 "${MENU_FILE[@]}" 2>&1 1>&3)"
     RET_CODE="$?"
 
-    if [ "$RET_CODE" = 0 ]; then
-        if [ -f "$DIALOG_RET" ]; then
-            echo "$DIALOG_RET"
-        else
-            show_info 'File error' "Selected file '$DIALOG_RET' does not exist." 2>&1 1>&3
-            return 1
-        fi
+    if [ "$RET_CODE" = 0 ] && ! [ -z "$DIALOG_RET" ]; then
+        echo "$2/$DIALOG_RET"
     fi
 
     return "$RET_CODE"
@@ -1701,7 +1716,7 @@ edit_config() {
 
 # select Postfix configuration file for editing in dialog menu
 # parameters:
-# none
+# $1 - config tag (either 'server' or 'client')
 # return values:
 # none
 postfix_config() {
@@ -1710,9 +1725,9 @@ postfix_config() {
 
     MENU_POSTFIX_CONFIG=()
 
-    for CONFIG in "${POSTFIX_CONFIG[@]}"; do
+    while read CONFIG; do
         MENU_POSTFIX_CONFIG+=("$CONFIG" "$(eval echo \"\$LABEL_CONFIG_POSTFIX_${CONFIG^^}\")")
-    done
+    done < <(eval "for ELEMENT in \"\${POSTFIX_CONFIG_${1^^}[@]}\"; do echo \"\$ELEMENT\"; done")
 
     while true; do
         exec 3>&1
@@ -1730,11 +1745,29 @@ postfix_config() {
                 postfix reload &>/dev/null
             fi
         elif [ "$RET_CODE" = 3 ]; then
-            show_help "$HELP_POSTFIX_CONFIG"
+            show_help "$(eval echo \"\$HELP_POSTFIX_${1^^}\")"
         else
             break
         fi
     done
+}
+
+# select Postfix server configuration file for editing
+# parameters:
+# none
+# return values:
+# none
+postfix_server() {
+    postfix_config 'server'
+}
+
+# select Postfix client configuration file for editing
+# parameters:
+# none
+# return values:
+# none
+postfix_client() {
+    postfix_config 'client'
 }
 
 # show Postfix queues
@@ -1833,6 +1866,228 @@ resolver_config() {
     if [ "$?" != 0 ]; then
         systemctl reload bind9 &>/dev/null
     fi
+}
+
+# add forwarder IP address to forward zone
+# parameters:
+# $1 - zone name
+# return values:
+# none
+add_forwarder() {
+    declare FORWARDER_NEW RET_CODE LIST_FORWARD
+
+    exec 3>&1
+    FORWARDER_NEW="$(get_input 'Add forwarder IP' 'Enter IP address of forwarder')"
+    RET_CODE="$?"
+    exec 3>&-
+
+    if [ "$RET_CODE" = 0 ] && ! [ -z "$FORWARDER_NEW" ]; then
+        LIST_FORWARD="$(sed -n "/^zone \"$1\" {$/,/^};$/p" "$CONFIG_RESOLVER_FORWARD" | grep -E $'\t''forwarders {' | awk 'match($0, /^\tforwarders { (.*[^ ]+) };$/, a) {print a[1]}')"
+
+        [ -z "$LIST_FORWARD" ] && LIST_FORWARD="$FORWARDER_NEW;" || LIST_FORWARD+=" $FORWARDER_NEW;"
+
+        sed -i "/^zone \"$1\" {$/,/^};$/d" "$CONFIG_RESOLVER_FORWARD"
+        echo "zone \"$1\" {"$'\n\t''type forward;'$'\n\t''forward only;'$'\n\t'"forwarders { $LIST_FORWARD };"$'\n''};' >> "$CONFIG_RESOLVER_FORWARD"
+
+        systemctl reload bind9 &>/dev/null
+    fi
+}
+
+# remove forwarder IP address to forward zone
+# parameters:
+# $1 - zone name
+# $2 - forwarder name
+# return values:
+# none
+remove_forwarder() {
+    declare LIST_FORWARD
+
+    LIST_FORWARD="$(sed -n "/^zone \"$1\" {$/,/^};$/p" "$CONFIG_RESOLVER_FORWARD" | grep -E $'\t''forwarders {' | awk 'match($0, /^\tforwarders { (.*[^ ]+) };$/, a) {print a[1]}' | sed -E "s/ ?$2;//")"
+
+    sed -i "/^zone \"$1\" {$/,/^};$/d" "$CONFIG_RESOLVER_FORWARD"
+    echo "zone \"$1\" {"$'\n\t''type forward;'$'\n\t''forward only;'$'\n\t'"forwarders { $LIST_FORWARD };"$'\n''};' >> "$CONFIG_RESOLVER_FORWARD"
+
+    systemctl reload bind9 &>/dev/null
+}
+
+# edit forward zone
+# parameters:
+# $1 - zone name
+# return values:
+# none
+forward_zone() {
+    declare LIST_FORWARD IP_ADDRESS DIALOG_RET RET_CODE
+    declare -a MENU_FORWARD
+
+    while true; do
+        LIST_FORWARD="$(sed -n "/^zone \"$1\" {$/,/^};$/p" "$CONFIG_RESOLVER_FORWARD" | grep -E $'\t''forwarders {' | awk 'match($0, /^\tforwarders { (.*[^ ]+) };$/, a) {print a[1]}' | sed 's/;//g')"
+
+        MENU_FORWARD=()
+
+        if [ -z "$LIST_FORWARD" ]; then
+            MENU_FORWARD+=('' 'No forwarders')
+
+            "$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Add' --no-tags --menu 'Choose forwarder IP address to remove' 0 0 0 "${MENU_FORWARD[@]}"
+
+            if [ "$?" = 0 ]; then
+                add_forwarder "$1"
+            else
+                break
+            fi
+        else
+            for IP_ADDRESS in $LIST_FORWARD; do
+                MENU_FORWARD+=("$IP_ADDRESS" "$IP_ADDRESS")
+            done
+
+            exec 3>&1
+            DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Remove' --no-tags --extra-button --extra-label 'Add' --menu 'Choose forwarder IP address to remove' 0 0 0 "${MENU_FORWARD[@]}" 2>&1 1>&3)"
+            RET_CODE="$?"
+            exec 3>&-
+
+            if [ "$RET_CODE" = 0 ] && ! [ -z "$DIALOG_RET" ]; then
+                remove_forwarder "$1" "$DIALOG_RET"
+            elif [ "$RET_CODE" = 3 ]; then
+                add_forwarder "$1"
+            else
+                break
+            fi
+        fi
+    done
+}
+
+# add forward zone
+# parameters:
+# none
+# return values:
+# none
+add_forward() {
+    declare FORWARD_NEW RET_CODE
+
+    exec 3>&1
+    FORWARD_NEW="$(get_input 'Add forward zone' 'Enter name of forward zone')"
+    RET_CODE="$?"
+    exec 3>&-
+
+    if [ "$RET_CODE" = 0 ] && ! [ -z "$FORWARD_NEW" ]; then
+        echo "zone \"$FORWARD_NEW\" {"$'\n\t''type forward;'$'\n\t''forward only;'$'\n\t'"forwarders {  };"$'\n''};' >> "$CONFIG_RESOLVER_FORWARD"
+
+        systemctl reload bind9 &>/dev/null
+    fi
+}
+
+# manage forward zones in dialog menu
+# parameters:
+# none
+# return values:
+# none
+resolver_forward() {
+    declare LIST_FORWARD DIALOG_RET RET_CODE
+    declare -a MENU_FORWARD
+
+    while true; do
+        [ -f "$CONFIG_RESOLVER_FORWARD" ] && LIST_FORWARD="$(grep -E '^zone "\S+" {' "$CONFIG_RESOLVER_FORWARD" | awk 'match($0, /^zone "([^"]+)" {$/, a) {print a[1]}')"
+
+        MENU_FORWARD=()
+
+        if [ -z "$LIST_FORWARD" ]; then
+            MENU_FORWARD+=('' 'No forward zones')
+
+            "$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Add' --no-tags --menu 'Choose forward zone to edit' 0 0 0 "${MENU_FORWARD[@]}"
+
+            if [ "$?" = 0 ]; then
+                add_forward
+            else
+                break
+            fi
+        else
+            for ZONE_FORWARD in $LIST_FORWARD; do
+                MENU_FORWARD+=("$ZONE_FORWARD" "$ZONE_FORWARD")
+            done
+
+            exec 3>&1
+            DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Edit' --no-tags --extra-button --extra-label 'Add' --menu 'Choose forward zone to edit' 0 0 0 "${MENU_FORWARD[@]}" 2>&1 1>&3)"
+            RET_CODE="$?"
+            exec 3>&-
+
+            if [ "$RET_CODE" = 0 ] && ! [ -z "$DIALOG_RET" ]; then
+                forward_zone "$DIALOG_RET"
+            elif [ "$RET_CODE" = 3 ]; then
+                add_forward
+            else
+                break
+            fi
+        fi
+    done
+}
+
+# add local zone
+# parameters:
+# none
+# return values:
+# none
+add_local() {
+    declare LOCAL_NEW RET_CODE FILE_ZONE
+
+    exec 3>&1
+    LOCAL_NEW="$(get_input 'Add local zone' 'Enter name of local zone')"
+    RET_CODE="$?"
+    exec 3>&-
+
+    if [ "$RET_CODE" = 0 ] && ! [ -z "$LOCAL_NEW" ]; then
+        FILE_ZONE="$LOCAL_NEW.db"
+
+        echo "zone \"$LOCAL_NEW\" {"$'\n\t''type master;'$'\n\t'"file $FILE_ZONE;"$'\n''};' >> "$CONFIG_RESOLVER_LOCAL"
+        touch "$DIR_ZONE/$FILE_ZONE"
+
+        systemctl reload bind9 &>/dev/null
+    fi
+}
+
+# manage local zones in dialog menu
+# parameters:
+# none
+# return values:
+# none
+resolver_local() {
+    declare LIST_LOCAL DIALOG_RET RET_CODE
+    declare -a MENU_LOCAL
+
+    while true; do
+        [ -f "$CONFIG_RESOLVER_LOCAL" ] && LIST_LOCAL="$(grep -E '^zone "\S+" {' "$CONFIG_RESOLVER_LOCAL" | awk 'match($0, /^zone "([^"]+)" {$/, a) {print a[1]}')"
+
+        MENU_LOCAL=()
+
+        if [ -z "$LIST_LOCAL" ]; then
+            MENU_LOCAL+=('' 'No local zones')
+
+            "$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Add' --no-tags --menu 'Choose local zone to edit' 0 0 0 "${MENU_LOCAL[@]}"
+
+            if [ "$?" = 0 ]; then
+                add_local
+            else
+                break
+            fi
+        else
+            for ZONE_LOCAL in $LIST_LOCAL; do
+                MENU_LOCAL+=("$ZONE_LOCAL" "$ZONE_LOCAL")
+            done
+
+            exec 3>&1
+            DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Edit' --no-tags --extra-button --extra-label 'Add' --menu 'Choose local zone to edit' 0 0 0 "${MENU_LOCAL[@]}" 2>&1 1>&3)"
+            RET_CODE="$?"
+            exec 3>&-
+
+            if [ "$RET_CODE" = 0 ] && ! [ -z "$DIALOG_RET" ]; then
+                edit_config "$DIR_ZONE/$DIALOG_RET.db"
+
+                [ "$?" = 0 ] && systemctl reload bind9 &>/dev/null
+            elif [ "$RET_CODE" = 3 ]; then
+                add_local
+            else
+                break
+            fi
+        fi
+    done
 }
 
 # sync local DNS resolver config
@@ -2598,7 +2853,7 @@ fail2ban_config() {
         MENU_FAIL2BAN_CONFIG+=("$CONFIG" "$(eval echo \"\$LABEL_CONFIG_FAIL2BAN_${CONFIG^^}\")")
     done
 
-    check_installed_peer && MENU_FAIL2BAN_CONFIG+=("$TAG_SYNC" 'Sync config')
+    check_installed_peer && MENU_FAIL2BAN_CONFIG+=("$TAG_SYNC" 'Sync cluster')
 
     while true; do
         exec 3>&1
@@ -2791,87 +3046,6 @@ show_update() {
     [ -z "$INFO" ] && INFO='No pending updates'
 
     show_info 'Pending updates' "$INFO"
-}
-
-# select log in dialog menu
-# parameters:
-# none
-# return values:
-# none
-show_log() {
-    declare PROGRAM_LOG RET_CODE SEARCH_FILTER SEARCH_RESULT
-    declare -a MENU_LOG
-
-    MENU_LOG=()
-    for PROGRAM_LOG in "${PROGRAM_LOGS[@]}"; do
-        if [ "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_CHECK\")" != 1 ] || check_installed_$PROGRAM_LOG; then
-            MENU_LOG+=("$PROGRAM_LOG" "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_LABEL\")")
-        fi
-    done
-
-    while true; do
-        exec 3>&1
-        PROGRAM_LOG="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_LOG[@]}" 2>&1 1>&3)"
-        RET_CODE="$?"
-        exec 3>&-
-
-        if [ "$RET_CODE" = 0 ]; then
-            exec 3>&1
-            SEARCH_FILTER="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --title 'Search logs' --ok-label 'Current log' --extra-button --extra-label 'All logs' --inputbox 'Enter search filter' 0 0 '' 2>&1 1>&3)"
-            RET_CODE="$?"
-            exec 3>&-
-
-            if ! [ -z "$SEARCH_FILTER" ]; then
-                if [ "$RET_CODE" = 0 ] || [ "$RET_CODE" = 3 ]; then
-                    if [ "$RET_CODE" = 0 ]; then
-                        SEARCH_RESULT="$(grep "$SEARCH_FILTER" "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_DIR\")/current.log")"
-                    else
-                        SEARCH_RESULT="$(grep "$SEARCH_FILTER" -h "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_DIR\")"/*.log)"
-                    fi
-
-                    [ -z "$SEARCH_RESULT" ] && SEARCH_RESULT='No result'
-
-                    show_info 'Search results' "$SEARCH_RESULT"
-                fi
-            fi
-        elif [ "$RET_CODE" = 3 ]; then
-            show_help "$HELP_LOG"
-        else
-            break
-        fi
-    done
-}
-
-# select system info to show in dialog menu
-# parameters:
-# none
-# return values:
-# none
-system_info() {
-    declare -a MENU_OTHER_INFO
-    declare DIALOG_RET RET_CODE
-
-    MENU_OTHER_INFO=()
-    MENU_OTHER_INFO+=('connections' 'Network connections')
-    MENU_OTHER_INFO+=('firewall' 'Firewall rules')
-    MENU_OTHER_INFO+=('install' 'Install log')
-    MENU_OTHER_INFO+=('update' 'Pending updates')
-    check_installed_logmanager && MENU_OTHER_INFO+=('log' 'Logs')
-
-    while true; do
-        exec 3>&1
-        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Select' --no-tags --extra-button --extra-label 'Help' --menu 'Choose info to show' 0 0 0 "${MENU_OTHER_INFO[@]}" 2>&1 1>&3)"
-        RET_CODE="$?"
-        exec 3>&-
-
-        if [ "$RET_CODE" = 0 ]; then
-            "show_$DIALOG_RET"
-        elif [ "$RET_CODE" = 3 ]; then
-            show_help "$HELP_OTHER_INFO"
-        else
-            break
-        fi
-    done
 }
 
 # check whether distro is Ubuntu
@@ -3068,43 +3242,13 @@ automatic_update_disable() {
     done
 }
 
-# select general setting in dialog menu
+# toggle automatic updates
 # parameters:
 # none
 # return values:
 # none
-general_settings() {
-    declare -r TAG_EDITOR='text_editor'
-    declare -r TAG_EMAIL='email_addresses'
-    declare -r TAG_UPDATES='automatic_update'
-    declare -r LABEL_EDITOR='Text editor'
-    declare -r LABEL_EMAIL='Email addresses'
-    declare -r LABEL_UPDATES='Automatic update'
-    declare -a MENU_GENERAL
-
-    while true; do
-        MENU_GENERAL=()
-        MENU_GENERAL+=("$TAG_EDITOR" "$LABEL_EDITOR")
-        MENU_GENERAL+=("$TAG_EMAIL" "$LABEL_EMAIL")
-        automatic_update_status && MENU_GENERAL+=("$TAG_UPDATES" "$LABEL_UPDATES (enabled)") || MENU_GENERAL+=("$TAG_UPDATES" "$LABEL_UPDATES (disabled)")
-
-        exec 3>&1
-        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_GENERAL[@]}" 2>&1 1>&3)"
-        RET_CODE="$?"
-        exec 3>&-
-        if [ "$RET_CODE" = 0 ]; then
-            case "$DIALOG_RET" in
-                "$TAG_UPDATES")
-                    toggle_setting 'automatic_update' 'Automatic update';;
-                *)
-                    "$DIALOG_RET";;
-            esac
-        elif [ "$RET_CODE" = 3 ]; then
-            show_help "$HELP_GENERAL_SETTINGS"
-        else
-            break
-        fi
-    done
+automatic_update() {
+    toggle_setting 'automatic_update' 'Automatic update'
 }
 
 # install Postfix
@@ -3124,19 +3268,19 @@ install_postfix() {
 # none
 install_resolver() {
     declare -r PACKED_CONFIG='
-    H4sIAFf/+V0AA7VX227bMAx971cIeXcuxdo+9GMGxWYcYbLkSXIap9i/j5Zkm0mrQRjsJEAQ8Rzx
-    iKZIRrdOaGXZ5xPDVyUMlE6bnm12F252JS/PsDsKVW3eA0BZC2Vx4VJUfGAy3jkdbA2/FsozCuck
-    e93vwzoizoW6VrrhQjE1ooUSDZeFAduiALCsBxtMUlgHqtCquLyyT2QoeGd/HmxoODy/bff4PkzW
-    k5AOTMHx5ek/5k3xYJ2xg+JpiUupP4rZ8N2O8cCg+FFCoKLl6Yaa2EYo9KY2MXiubwGDgPrMpGYC
-    bavjJlClrmuh6kgqz1wpkMy0t58eH5Znun8OyNkp3kC1Q9wWf23YBbxoy16YFTdgL/vmfaJaQLNw
-    Pat6pIlytrQG9RSTfYrFoIzqqeDEO+myNEXsg67D/j+EOdFAWlQNCgyXWaIidn1ReA/4kVvIC1UE
-    e1lLKbBDBiM7S8EIXj8wpVYnUWeJCtBFg4J1RUvcIO9WRfD6QbmesD4JlaUqYhcNi99Td3kXewQv
-    qkBpJ055uRqgi3ovpQCVd/oAXdR7pxrusEFWWQIm9KIafndIBpulIGKXuBZfW052woD70OZXXsYE
-    7LIPrcWqnVfeA3RR75Ww7ZAFee0lgpdV4EegPP8eun4VlegNM8oMPrKEUcIq8oav+6bcW/RDdMUF
-    qUsu31a9N5iC9TDDx7mMaKBTXYIU5yZColNXylMca6grOhbdhWlijaMIDRIdZRLOwrBASGTQSFDG
-    /k5Id/NBghYbMGHR9v0vEjbNR9bYdBO00OsIifTJVCB8g6KBmJtbgjK1FMK6b0oJYuwEhEb7SOpM
-    oRrTQ5Fa/s3dmWT6Oko1zjU4lYKx9NEUpKUzRfMVi5Lmapeg0FpCiF9qUioX2xtNw/i/bwLj5y+u
-    tslelA8AAA==
+    H4sIANPPBV4AA7VXwW7bMAy99yuE3J2kw9oe+jGDYjOpMJnyJDltUuzfR0uKzLRVIQxOeihivmc+
+    M9QjbQavDDrxfifo0ykLrTf2JFabo7SbVrYvsNkp7FbPEYDOQdscpVadnJhCjt7EWC/fGgyMxnst
+    HrfbeJ0QLw2+daaXCgVe0ApVL3VjwQ0kAJw4gYshrZwHbAw2x0fxTgyEZ/H3Q4wC9z+e1lv6u8/R
+    vdIebCPpE+g/55vSg43WTYrzJam1eW3mwFd3TA8MKHcaIpUid2fSJFYKKRuuUvH8aQAqAumzWU0G
+    rbvdKlK1ORwUHhKpfZGIoIUdzr8CPl6e6eF3IM4GZQ/dhnBr+rYSRwiinXgQTp1BPGz750x1QGHl
+    T6I7EU21c2SwpKfJ8VyLSRnX08FejtpXaUrYD7rut/8hzKseyqIOgGClrhKVsLcXRedA7qSDulIl
+    cJC1lAI3dTCxqxRcwLcvTGtwrw5VoiJ00aKQrxhNN6g7VQl8+6K87cmfFFapSthFyxLuaca6g30B
+    L6oAjVf7ul6N0EWzt1oB1j19hC6afcReehqQXZWAjF5Uw5+RyOCqFCTsEsfi88ipbhjwr8b+ruuY
+    iF32RxvItevsPUIXzd4pN0xdUDdeEnhZBWEFqssfoLd3UU3ZqKPslKNKGCfcRN7073oonxzlYbrS
+    BW1aqZ9uem6oBQ/TDp/2MqaBb3UFUtqbGIlvXaVMaa3hqfhadFWmzLqsIrxIfJUpJIvLAiOxRaNA
+    ucx3RrraDwq0NIAZi4/v70g0ND+yLkO3QIuzjpHYnCwVIgwoXoh5uBUoeaQw1vVQKhDTJGA0PkdK
+    zxTdmD8U8/Ivzk6WGXyUa5w9uNSCyfp4C3LrLNGCY3HS7HYFCvcSRvzkSaVeHM68DdN7XwZPeIWt
+    HrvJxcC34fU72th66vT13thXabtmegd15PLfo4PfZOw/BKgIte8PAAA=
     '
 
     show_wait
@@ -3472,18 +3616,21 @@ menu_install() {
 # none
 menu_postfix() {
     declare -r TAG_FEATURE='postfix_feature'
-    declare -r TAG_CONFIG='postfix_config'
+    declare -r TAG_SERVER='postfix_server'
+    declare -r TAG_CLIENT='postfix_client'
     declare -r TAG_INFO='postfix_info'
     declare -r TAG_SYNC='postfix_sync'
     declare -r LABEL_FEATURE='Settings'
-    declare -r LABEL_CONFIG='Maps'
+    declare -r LABEL_SERVER='Server maps'
+    declare -r LABEL_CLIENT='Client maps'
     declare -r LABEL_INFO='Info & Stats'
-    declare -r LABEL_SYNC='Sync config'
+    declare -r LABEL_SYNC='Sync cluster'
     declare -a MENU_POSTFIX
 
     MENU_POSTFIX=()
     MENU_POSTFIX+=("$TAG_FEATURE" "$LABEL_FEATURE")
-    MENU_POSTFIX+=("$TAG_CONFIG" "$LABEL_CONFIG")
+    MENU_POSTFIX+=("$TAG_SERVER" "$LABEL_SERVER")
+    MENU_POSTFIX+=("$TAG_CLIENT" "$LABEL_CLIENT")
     MENU_POSTFIX+=("$TAG_INFO" "$LABEL_INFO")
     check_installed_peer && MENU_POSTFIX+=("$TAG_SYNC" "$LABEL_SYNC")
 
@@ -3503,20 +3650,26 @@ menu_postfix() {
     done
 }
 
-# select Postfwd option in dialog menu
+# select local DNS resolver option in dialog menu
 # parameters:
 # none
 # return values:
 # none
 menu_resolver() {
     declare -r TAG_CONFIG='resolver_config'
+    declare -r TAG_FORWARD='resolver_forward'
+    declare -r TAG_LOCAL='resolver_local'
     declare -r TAG_SYNC='resolver_sync'
     declare -r LABEL_CONFIG='Config'
-    declare -r LABEL_SYNC='Sync config'
+    declare -r LABEL_FORWARD='Forward zones'
+    declare -r LABEL_LOCAL='Local zones'
+    declare -r LABEL_SYNC='Sync cluster'
     declare -a MENU_RESOLVER
 
     MENU_RESOLVER=()
     MENU_RESOLVER+=("$TAG_CONFIG" "$LABEL_CONFIG")
+    MENU_RESOLVER+=("$TAG_FORWARD" "$LABEL_FORWARD")
+    MENU_RESOLVER+=("$TAG_LOCAL" "$LABEL_LOCAL")
     check_installed_peer && MENU_RESOLVER+=("$TAG_SYNC" "$LABEL_SYNC")
 
     while true; do
@@ -3544,7 +3697,7 @@ menu_postfwd() {
     declare -r TAG_CONFIG='postfwd_config'
     declare -r TAG_SYNC='postfwd_sync'
     declare -r LABEL_CONFIG='Config'
-    declare -r LABEL_SYNC='Sync config'
+    declare -r LABEL_SYNC='Sync cluster'
     declare -a MENU_POSTFWD
 
     MENU_POSTFWD=()
@@ -3576,7 +3729,7 @@ menu_dkim() {
     declare -r TAG_CONFIG='dkim_config'
     declare -r TAG_SYNC='dkim_sync'
     declare -r LABEL_CONFIG='Config'
-    declare -r LABEL_SYNC='Sync config'
+    declare -r LABEL_SYNC='Sync cluster'
     declare -a MENU_DKIM
 
     MENU_DKIM=()
@@ -3608,7 +3761,7 @@ menu_spf() {
     declare -r TAG_CONFIG='spf_config'
     declare -r TAG_SYNC='spf_sync'
     declare -r LABEL_CONFIG='Config'
-    declare -r LABEL_SYNC='Sync config'
+    declare -r LABEL_SYNC='Sync cluster'
     declare -a MENU_SPF
 
     MENU_SPF=()
@@ -3642,7 +3795,7 @@ menu_spamassassin() {
     declare -r TAG_SYNC='spamassassin_sync'
     declare -r LABEL_CONFIG='Config'
     declare -r LABEL_INFO='Info & Stats'
-    declare -r LABEL_SYNC='Sync config'
+    declare -r LABEL_SYNC='Sync cluster'
     declare -a MENU_SPAMASSASSIN
 
     MENU_SPAMASSASSIN=()
@@ -3679,7 +3832,7 @@ menu_rspamd() {
     declare -r LABEL_FEATURE='Feature'
     declare -r LABEL_CONFIG='Config'
     declare -r LABEL_INFO='Info & Stats'
-    declare -r LABEL_SYNC='Sync config'
+    declare -r LABEL_SYNC='Sync cluster'
     declare -a MENU_RSPAMD
 
     MENU_RSPAMD=()
@@ -3715,7 +3868,7 @@ menu_fail2ban() {
     declare -r TAG_SYNC='fail2ban_sync'
     declare -r LABEL_CONFIG='Config'
     declare -r LABEL_JAIL='Jails'
-    declare -r LABEL_SYNC='Sync config'
+    declare -r LABEL_SYNC='Sync cluster'
     declare -a MENU_FAIL2BAN
 
     MENU_FAIL2BAN=()
@@ -3773,17 +3926,32 @@ menu_addon() {
 # return values:
 # none
 menu_misc() {
-    declare -r TAG_GENERAL_SETTINGS='general_settings'
-    declare -r TAG_SYSTEM_INFO='system_info'
-    declare -r LABEL_GENERAL_SETTINGS='General settings'
-    declare -r LABEL_SYSTEM_INFO='System info'
+    declare -r TAG_EDITOR='text_editor'
+    declare -r TAG_EMAIL='email_addresses'
+    declare -r TAG_UPDATES='automatic_update'
+    declare -r TAG_CONNECTIONS='show_connections'
+    declare -r TAG_FIREWALL='show_firewall'
+    declare -r TAG_INSTALL='show_install'
+    declare -r TAG_UPDATE='show_update'
+    declare -r LABEL_EDITOR='Set text editor'
+    declare -r LABEL_EMAIL='Set notification addresses'
+    declare -r LABEL_UPDATES='Automatic update'
+    declare -r LABEL_CONNECTIONS='Network connections'
+    declare -r LABEL_FIREWALL='Firewall rules'
+    declare -r LABEL_INSTALL='Install log'
+    declare -r LABEL_UPDATE='Pending updates'
     declare -a MENU_MISC
 
-    MENU_MISC=()
-    MENU_MISC+=("$TAG_GENERAL_SETTINGS" "$LABEL_GENERAL_SETTINGS")
-    MENU_MISC+=("$TAG_SYSTEM_INFO" "$LABEL_SYSTEM_INFO")
-
     while true; do
+        MENU_MISC=()
+        MENU_MISC+=("$TAG_EDITOR" "$LABEL_EDITOR")
+        MENU_MISC+=("$TAG_EMAIL" "$LABEL_EMAIL")
+        automatic_update_status && MENU_MISC+=("$TAG_UPDATES" "$LABEL_UPDATES (enabled)") || MENU_MISC+=("$TAG_UPDATES" "$LABEL_UPDATES (disabled)")
+        MENU_MISC+=("$TAG_CONNECTIONS" "$LABEL_CONNECTIONS")
+        MENU_MISC+=("$TAG_FIREWALL" "$LABEL_FIREWALL")
+        MENU_MISC+=("$TAG_INSTALL" "$LABEL_INSTALL")
+        MENU_MISC+=("$TAG_UPDATE" "$LABEL_UPDATE")
+
         exec 3>&1
         DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title 'Misc' --menu '' 0 0 0 "${MENU_MISC[@]}" 2>&1 1>&3)"
         RET_CODE="$?"
@@ -3793,6 +3961,55 @@ menu_misc() {
             "$DIALOG_RET"
         elif [ "$RET_CODE" = 3 ]; then
             show_help "$HELP_MISC"
+        else
+            break
+        fi
+    done
+}
+
+# select log in dialog menu
+# parameters:
+# none
+# return values:
+# none
+menu_log() {
+    declare PROGRAM_LOG RET_CODE SEARCH_FILTER SEARCH_RESULT
+    declare -a MENU_LOG
+
+    MENU_LOG=()
+    for PROGRAM_LOG in "${PROGRAM_LOGS[@]}"; do
+        if [ "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_CHECK\")" != 1 ] || check_installed_$PROGRAM_LOG; then
+            MENU_LOG+=("$PROGRAM_LOG" "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_LABEL\")")
+        fi
+    done
+
+    while true; do
+        exec 3>&1
+        PROGRAM_LOG="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_LOG[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            exec 3>&1
+            SEARCH_FILTER="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --title 'Search logs' --ok-label 'Current log' --extra-button --extra-label 'All logs' --inputbox 'Enter search filter' 0 0 '' 2>&1 1>&3)"
+            RET_CODE="$?"
+            exec 3>&-
+
+            if ! [ -z "$SEARCH_FILTER" ]; then
+                if [ "$RET_CODE" = 0 ] || [ "$RET_CODE" = 3 ]; then
+                    if [ "$RET_CODE" = 0 ]; then
+                        SEARCH_RESULT="$(grep "$SEARCH_FILTER" "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_DIR\")/current.log")"
+                    else
+                        SEARCH_RESULT="$(grep "$SEARCH_FILTER" -h "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_DIR\")"/*.log)"
+                    fi
+
+                    [ -z "$SEARCH_RESULT" ] && SEARCH_RESULT='No result'
+
+                    show_info 'Search results' "$SEARCH_RESULT"
+                fi
+            fi
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_LOG"
         else
             break
         fi
@@ -3960,12 +4177,14 @@ declare -r TAG_MENU_INSTALL='menu_install'
 declare -r TAG_MENU_POSTFIX='menu_postfix'
 declare -r TAG_MENU_ADDON='menu_addon'
 declare -r TAG_MENU_MISC='menu_misc'
+declare -r TAG_MENU_LOG='menu_log'
 declare -r TAG_MENU_SYNC_ALL='sync_all'
 declare -r LABEL_MENU_INSTALL='Install'
 declare -r LABEL_MENU_POSTFIX='Postfix'
 declare -r LABEL_MENU_ADDON='Addon'
 declare -r LABEL_MENU_MISC='Misc'
-declare -r LABEL_SYNC_ALL='Sync all config'
+declare -r LABEL_MENU_LOG='Log files'
+declare -r LABEL_SYNC_ALL='Sync cluster'
 declare -a MENU_MAIN
 declare DIALOG_RET RET_CODE TAG_ADDON
 
@@ -3993,6 +4212,7 @@ while true; do
         fi
     done
     MENU_MAIN+=("$TAG_MENU_MISC" "$LABEL_MENU_MISC")
+    check_installed_logmanager && MENU_MAIN+=("$TAG_MENU_LOG" "$LABEL_MENU_LOG")
     check_installed_peer && MENU_MAIN+=("$TAG_SYNC_ALL" "$LABEL_SYNC_ALL")
 
     exec 3>&1
