@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# menu.sh V1.7.0 for Postfix
+# menu.sh V1.8.0 for Postfix
 #
-# Copyright (c) 2019 NetCon Unternehmensberatung GmbH, netcon-consulting.com
+# Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, netcon-consulting.com
 #
 # Authors:
 # Marc Dierksen (m.dierksen@netcon-consulting.com)
@@ -16,8 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - rework of menu structure
-# - for the local DNS resolver added options for managing local and forward zones
+# - automatically manage serial numbers of local zones
 #
 ###################################################################################################
 
@@ -838,7 +837,7 @@ get_yesno() {
 # $1 - setting keyword
 # $2 - setting label
 # return values:
-# none
+# stderr - 0 if setting changed, 1 if not changed
 toggle_setting() {
     declare SETTING_STATUS MESSAGE
     
@@ -857,7 +856,11 @@ toggle_setting() {
         else
             "$1_enable"
         fi
-    fi  
+
+        return 0
+    fi
+
+    return 1
 }
 
 # check whether Postfix is installed
@@ -1675,6 +1678,7 @@ postfix_feature() {
             done
 
             [ "$POSTFIX_RESTART" = 1 ] && postfix_restart
+
             break
         elif [ "$RET_CODE" = 3 ]; then
             show_help "$HELP_POSTFIX_FEATURE"
@@ -1691,7 +1695,6 @@ postfix_feature() {
 # stderr - 1 if config file changed, 0 if not changed
 edit_config() {
     declare -r TMP_CONFIG='/tmp/TMPconfig'
-    declare RET_CODE
 
     if [ -f "$1" ]; then
         cp -f "$1" "$TMP_CONFIG"
@@ -1702,16 +1705,16 @@ edit_config() {
     "$TXT_EDITOR" "$TMP_CONFIG"
 
     diff -N -s "$TMP_CONFIG" "$1" &>/dev/null
-    RET_CODE="$?"
+
+    if [ "$?" != 0 ]; then
+        mv -f "$TMP_CONFIG" "$1"
+
+        return 0
+    fi
 
     rm -f "$TMP_CONFIG"
 
-    if [ "$RET_CODE" != 0 ]; then
-        cp -f "$TMP_CONFIG" "$1"
-        return 1
-    fi
-
-    return 0
+    return 1
 }
 
 # select Postfix configuration file for editing in dialog menu
@@ -1740,7 +1743,7 @@ postfix_config() {
 
             edit_config "$FILE_CONFIG"
 
-            if [ "$?" != 0 ]; then
+            if [ "$?" = 0 ]; then
                 postconf 2>/dev/null | grep -q "hash:$FILE_CONFIG" && postmap "$FILE_CONFIG" &>/dev/null
                 postfix reload &>/dev/null
             fi
@@ -1837,11 +1840,7 @@ postfix_sync() {
 # return values:
 # none
 postfwd_config() {
-    edit_config "$CONFIG_POSTFWD"
-
-    if [ "$?" != 0 ]; then
-        systemctl reload postfwd &>/dev/null
-    fi
+    edit_config "$CONFIG_POSTFWD" && systemctl reload postfwd &>/dev/null
 }
 
 # sync Postfwd config
@@ -1861,11 +1860,7 @@ postfwd_sync() {
 # return values:
 # none
 resolver_config() {
-    edit_config "$CONFIG_RESOLVER"
-
-    if [ "$?" != 0 ]; then
-        systemctl reload bind9 &>/dev/null
-    fi
+    edit_config "$CONFIG_RESOLVER" && systemctl reload bind9 &>/dev/null
 }
 
 # add forwarder IP address to forward zone
@@ -1893,7 +1888,7 @@ add_forwarder() {
     fi
 }
 
-# remove forwarder IP address to forward zone
+# remove forwarder IP address from forward zone
 # parameters:
 # $1 - zone name
 # $2 - forwarder name
@@ -1971,6 +1966,8 @@ add_forward() {
     if [ "$RET_CODE" = 0 ] && ! [ -z "$FORWARD_NEW" ]; then
         echo "zone \"$FORWARD_NEW\" {"$'\n\t''type forward;'$'\n\t''forward only;'$'\n\t'"forwarders {  };"$'\n''};' >> "$CONFIG_RESOLVER_FORWARD"
 
+        forward_zone "$FORWARD_NEW"
+
         systemctl reload bind9 &>/dev/null
     fi
 }
@@ -1981,7 +1978,7 @@ add_forward() {
 # return values:
 # none
 resolver_forward() {
-    declare LIST_FORWARD DIALOG_RET RET_CODE
+    declare LIST_FORWARD DIALOG_RET RET_CODE ZONE_FORWARD
     declare -a MENU_FORWARD
 
     while true; do
@@ -2037,10 +2034,61 @@ add_local() {
         FILE_ZONE="$LOCAL_NEW.db"
 
         echo "zone \"$LOCAL_NEW\" {"$'\n\t''type master;'$'\n\t'"file $FILE_ZONE;"$'\n''};' >> "$CONFIG_RESOLVER_LOCAL"
-        touch "$DIR_ZONE/$FILE_ZONE"
+        echo '$TTL 86400'$'\n'"@   IN SOA  ns.$LOCAL_NEW. hostmaster.$LOCAL_NEW. ("$'\n'"       $(date +%Y%m%d)00   ; serial"$'\n''       3600         ; refresh'$'\n''       1800         ; retry'$'\n''       1209600      ; expire'$'\n''       86400 )      ; minimum'$'\n'"@        IN      NS      ns.$LOCAL_NEW."$'\n''ns       IN      A       127.0.0.1' > "$DIR_ZONE/$FILE_ZONE"
 
         systemctl reload bind9 &>/dev/null
     fi
+}
+
+# edit zone file
+# parameters:
+# $1 - zone name
+# return values:
+# stderr - 0 if zone file changed, 1 if not changed
+edit_zone() {
+    declare -r FILE_ZONE="$DIR_ZONE/$1.db"
+    declare -r TMP_ZONE='/tmp/TMPzone'
+    declare -r TMP_CONFIG='/tmp/TMPconfig'
+    declare RET_CODE SERIAL_LAST DATE_NEW DATE_LAST SERIAL_NEW
+
+    SERIAL_LAST="$(grep '; serial$' "$FILE_ZONE" | awk '{print $1}')"
+
+    sed "s/^       $SERIAL_LAST   ; serial$/       <do not edit>; serial/" "$FILE_ZONE" > "$TMP_ZONE"
+
+    cp -f "$TMP_ZONE" "$TMP_CONFIG"
+
+    "$TXT_EDITOR" "$TMP_CONFIG"
+
+    diff -N -s "$TMP_CONFIG" "$TMP_ZONE" &>/dev/null
+    RET_CODE="$?"
+
+    if [ "$RET_CODE" != 0 ]; then
+        DATE_NEW="$(date +%Y%m%d)"
+        DATE_LAST="$(echo "$SERIAL_LAST" | cut -c -8)"
+
+        if [ "$DATE_NEW" -le "$DATE_LAST" ]; then
+            SERIAL_NEW="$(expr "$SERIAL_LAST" + 1)"
+        else
+            SERIAL_NEW="${DATE_NEW}00"
+        fi
+
+        sed "s/^       <do not edit>; serial$/       $SERIAL_NEW   ; serial/" "$TMP_CONFIG" > "$TMP_ZONE"
+
+        if named-checkzone "$1" "$TMP_ZONE" | tail -1 | grep -q '^OK$'; then
+            mv -f "$TMP_ZONE" "$FILE_ZONE"
+            rm -f "$TMP_CONFIG"
+
+            rndc reload "$1" &>/dev/null
+
+            return 0
+        else
+            show_info 'Error' 'Invalid syntax in zone configuration.'
+        fi
+    fi
+
+    rm -f "$TMP_ZONE" "$TMP_CONFIG"
+
+    return 1
 }
 
 # manage local zones in dialog menu
@@ -2078,9 +2126,7 @@ resolver_local() {
             exec 3>&-
 
             if [ "$RET_CODE" = 0 ] && ! [ -z "$DIALOG_RET" ]; then
-                edit_config "$DIR_ZONE/$DIALOG_RET.db"
-
-                [ "$?" = 0 ] && systemctl reload bind9 &>/dev/null
+                edit_zone "$DIALOG_RET" && systemctl reload bind9 &>/dev/null
             elif [ "$RET_CODE" = 3 ]; then
                 add_local
             else
@@ -2107,11 +2153,7 @@ resolver_sync() {
 # return values:
 # none
 dkim_config() {
-    edit_config "$CONFIG_DKIM"
-
-    if [ "$?" != 0 ]; then
-        systemctl reload opendkim &>/dev/null
-    fi
+    edit_config "$CONFIG_DKIM" && systemctl reload opendkim &>/dev/null
 }
 
 # sync OpenDKIM config
@@ -2654,6 +2696,7 @@ rspamd_feature() {
             done
 
             [ "$RSPAMD_RESTART" = 1 ] && rspamd_restart
+
             break
         elif [ "$RET_CODE" = 3 ]; then
             show_help "$HELP_RSPAMD_FEATURE"
@@ -2685,11 +2728,7 @@ rspamd_config() {
         exec 3>&-
 
         if [ "$RET_CODE" = 0 ]; then
-            edit_config "$(eval echo \"\$CONFIG_RSPAMD_${DIALOG_RET^^}\")"
-
-            if [ "$?" != 0 ]; then
-                systemctl reload rspamd &>/dev/null
-            fi
+            edit_config "$(eval echo \"\$CONFIG_RSPAMD_${DIALOG_RET^^}\")" && systemctl reload rspamd &>/dev/null
         elif [ "$RET_CODE" = 3 ]; then
             show_help "$HELP_RSPAMD_CONFIG"
         else
@@ -2757,11 +2796,7 @@ spamassassin_config() {
         exec 3>&-
 
         if [ "$RET_CODE" = 0 ]; then
-            edit_config "$(eval echo \"\$CONFIG_SPAMASSASSIN_${DIALOG_RET^^}\")"
-
-            if [ "$?" != 0 ]; then
-                systemctl reload spamassassin &>/dev/null
-            fi
+            edit_config "$(eval echo \"\$CONFIG_SPAMASSASSIN_${DIALOG_RET^^}\")" && systemctl reload spamassassin &>/dev/null
         elif [ "$RET_CODE" = 3 ]; then
             show_help "$HELP_SPAMASSASSIN_CONFIG"
         else
@@ -3508,7 +3543,7 @@ install_peer() {
                 fi
 
                 if [ "$?" = 0 ]; then
-                    echo $'\n'"Host mx"$'\n\t'"HostName $IP_ADDRESS"$'\n\t''User root'$'\n\t'"Port $SSH_PORT"$'\n\t'"IdentityFile $SSH_KEY"$'\n\t' >> "$CONFIG_SSH"
+                    echo $'\n''Host mx'$'\n\t'"HostName $IP_ADDRESS"$'\n\t''User root'$'\n\t'"Port $SSH_PORT"$'\n\t'"IdentityFile $SSH_KEY"$'\n' >> "$CONFIG_SSH"
 
                     IP_ADDRESS="$(hostname -I | awk '{print $1}')"
 
