@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.8.0 for Postfix
+# menu.sh V1.9.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, netcon-consulting.com
 #
@@ -16,7 +16,8 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - automatically manage serial numbers of local zones
+# - improved file selection function
+# - bugfix
 #
 ###################################################################################################
 
@@ -750,7 +751,7 @@ get_keypress() {
 # return values:
 # none
 show_wait() {
-    "$DIALOG" --clear --backtitle "$TITLE_MAIN" --title '' --infobox 'Please wait...' 3 20
+    "$DIALOG" --backtitle "$TITLE_MAIN" --title '' --infobox 'Please wait...' 3 20
 }
 
 # show message in dialog msgbox
@@ -795,32 +796,82 @@ get_input() {
 # parameters:
 # $1 - dialog title
 # $2 - directory
+# $3 - allow changing directory
 # return values:
 # stdout - selected file path
 # error code - 0 for Ok, 1 for Cancel
 get_file() {
-    declare -r LIST_FILE="$(ls "$2")"
-    declare DIALOG_RET RET_CODE
+    declare DIRECTORY LIST_DIR LIST_FILE DIALOG_RET RET_CODE
     declare -a MENU_FILE
 
-    MENU_FILE=()
+    DIRECTORY="$2"
+    echo "$DIRECTORY" | grep -q '/$' || DIRECTORY+='/'
 
-    if [ -z "$LIST_FILE" ]; then
-        MENU_FILE+=('' 'No files')
-    else
-        for NAME_FILE in $LIST_FILE; do
-            MENU_FILE+=("$NAME_FILE" "$NAME_FILE")
+    if [ "$3" = 1 ]; then
+        while true; do
+            LIST_FILE="$(ls "$DIRECTORY")"
+
+            MENU_FILE=()
+            [ "$DIRECTORY" != '/' ] && MENU_FILE+=('..' '/..')
+
+            LIST_DIR=''
+
+            for NAME_FILE in $LIST_FILE; do
+                if [ -d "$DIRECTORY$NAME_FILE" ]; then
+                    LIST_DIR+=" $NAME_FILE"
+                    MENU_FILE+=("$NAME_FILE" "/$NAME_FILE")
+                fi
+            done
+
+            for NAME_FILE in $LIST_FILE; do
+                [ -f "$DIRECTORY$NAME_FILE" ] && MENU_FILE+=("$NAME_FILE" "$NAME_FILE")
+            done
+
+            DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --title "$1" --ok-label 'Select' --no-tags --menu "$DIRECTORY" 0 0 0 "${MENU_FILE[@]}" 2>&1 1>&3)"
+            RET_CODE="$?"
+
+            if [ "$RET_CODE" = 0 ]; then
+                if [ "$DIALOG_RET" = '..' ]; then
+                    DIRECTORY="$(echo "$DIRECTORY" | sed -E 's/[^/]+\/$//')"
+                elif echo "$LIST_DIR" | grep -E -q "(^| )$DIALOG_RET($| )"; then
+                    DIRECTORY+="$DIALOG_RET/"
+                else
+                    if ! [ -z "$DIALOG_RET" ]; then
+                        echo "$DIRECTORY$DIALOG_RET"
+
+                        return 0
+                    else
+                        return 1
+                    fi
+                fi
+            else
+                return 1
+            fi
         done
+    else
+        LIST_FILE="$(ls "$DIRECTORY")"
+
+        MENU_FILE=()
+
+        if [ -z "$LIST_FILE" ]; then
+            MENU_FILE+=('' 'No files')
+        else
+            for NAME_FILE in $LIST_FILE; do
+                [ -f "$DIRECTORY$NAME_FILE" ] && MENU_FILE+=("$NAME_FILE" "$NAME_FILE")
+            done
+        fi
+
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --title "$1" --ok-label 'Select' --no-tags --menu "$DIRECTORY" 0 0 0 "${MENU_FILE[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+
+        if [ "$RET_CODE" = 0 ] && ! [ -z "$DIALOG_RET" ]; then
+            echo "$DIRECTORY$DIALOG_RET"
+
+            return 0
+        fi
+
+        return 1
     fi
-
-    DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --title "$1" --ok-label 'Select' --no-tags --menu '' 0 0 0 "${MENU_FILE[@]}" 2>&1 1>&3)"
-    RET_CODE="$?"
-
-    if [ "$RET_CODE" = 0 ] && ! [ -z "$DIALOG_RET" ]; then
-        echo "$2/$DIALOG_RET"
-    fi
-
-    return "$RET_CODE"
 }
 
 # get yes/no decision
@@ -852,12 +903,10 @@ toggle_setting() {
 
     if [ "$?" = 0 ]; then
         if [ "$SETTING_STATUS" = 0 ]; then
-            "$1_disable"
+            "$1_disable" && return 0
         else
-            "$1_enable"
+            "$1_enable" && return 0
         fi
-
-        return 0
     fi
 
     return 1
@@ -1830,7 +1879,7 @@ postfix_info() {
 # none
 postfix_sync() {
     show_wait
-    rsync -avzh -e ssh "$DIR_MAPS" mx:"$DIR_MAPS" &>/dev/null
+    rsync -avzh -e ssh "$DIR_MAPS/" mx:"$DIR_MAPS/" &>/dev/null
     ssh mx postfix reload &>/dev/null
 }
 
@@ -2033,7 +2082,7 @@ add_local() {
     if [ "$RET_CODE" = 0 ] && ! [ -z "$LOCAL_NEW" ]; then
         FILE_ZONE="$LOCAL_NEW.db"
 
-        echo "zone \"$LOCAL_NEW\" {"$'\n\t''type master;'$'\n\t'"file $FILE_ZONE;"$'\n''};' >> "$CONFIG_RESOLVER_LOCAL"
+        echo "zone \"$LOCAL_NEW\" {"$'\n\t''type master;'$'\n\t'"file \"$FILE_ZONE\";"$'\n''};' >> "$CONFIG_RESOLVER_LOCAL"
         echo '$TTL 86400'$'\n'"@   IN SOA  ns.$LOCAL_NEW. hostmaster.$LOCAL_NEW. ("$'\n'"       $(date +%Y%m%d)00   ; serial"$'\n''       3600         ; refresh'$'\n''       1800         ; retry'$'\n''       1209600      ; expire'$'\n''       86400 )      ; minimum'$'\n'"@        IN      NS      ns.$LOCAL_NEW."$'\n''ns       IN      A       127.0.0.1' > "$DIR_ZONE/$FILE_ZONE"
 
         systemctl reload bind9 &>/dev/null
@@ -4074,7 +4123,7 @@ check_update() {
     rm -f "$TMP_UPDATE"
     wget "$LINK_UPDATE" -O "$TMP_UPDATE" &>/dev/null
 
-    if [ -f "$TMP_UPDATE" ]; then
+    if [ "$?" = 0 ]; then
         VERSION="$(grep '^# menu.sh V' "$TMP_UPDATE" | awk -FV '{print $2}' | awk '{print $1}')"
         MAJOR_DL="$(echo "$VERSION" | awk -F. '{print $1}')"
         MINOR_DL="$(echo "$VERSION" | awk -F. '{print $2}')"
@@ -4110,6 +4159,8 @@ check_update() {
         fi
     else
         show_info 'Update failed' 'Cannot download most recent version.'
+
+        rm -f "$TMP_UPDATE"
     fi
 }
 
