@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.9.0 for Postfix
+# menu.sh V1.10.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, netcon-consulting.com
 #
@@ -16,8 +16,8 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - improved file selection function
-# - bugfix
+# - included start/stop run-levels in Pyzor/Razor socket service scripts
+# - for the Rspamd Postfix integration also adjust milter protocol setting
 #
 ###################################################################################################
 
@@ -357,6 +357,8 @@ declare -g -r POSTFIX_SPAMASSASSIN_CUSTOM=1
 declare -g -r POSTFIX_RSPAMD_LABEL='Rspamd'
 declare -g -r POSTFIX_RSPAMD_CHECK=1
 declare -g -r POSTFIX_RSPAMD_CUSTOM=1
+
+POSTFIX_RSPAMD+=('milter_protocol=6')
 
 # SPF-check
 declare -g -r POSTFIX_SPF_LABEL='SPF-check'
@@ -2467,14 +2469,14 @@ pyzor_enable() {
     chmod 0700 "$PYZOR_SOCKET"
 
     PACKED_SCRIPT='
-    H4sIAHmU510AA5VSXU/CMBR976+4jgXFZI5piAohxphpjBjIABM1xpRSWcNoZ9upCPx3R4E5Pnxw
-    fbrnnntOz+0Ke26PcbeHVYgKqADx+FtIJciQalOTcEgEf2ODKjhwVgGvkoJ9qohksWaCV9cnIJaC
-    UKU4HtH1Fgr8zsNlo15GraB5U9/P9fZRo3l1d33b8OuW+4GlG6Wwq5KeGivXntMt1Hp8agbtlOZ3
-    XrttP9gQQEpjqQ9KMEGw/CgJBTgcrPa8xfgAjFQVrIzSx3QkOPum4CRpd8MCXBFrN2djNpWrj+Ix
-    eMenR+X0eFA5r5xkysuw9kWGPIO9AMGh71CGFygWQYuEhGCv4q/dPSsk1Ynkq3E0m4cV8R9Zw0Sb
-    rH3xybcDD1kU4SgCp+MH9ztD/zeBHIHz9v8EBCsKlu1ZwLihmfcrZROmzKpabckRcZ4i4m0G1okq
-    bcKSbsnnZnd6HZbWl2t1FR6kv7RZKUzMzHQuM114Tpces99l0y+mwcsLU4UJMvBqFT/avA/GfwMA
-    AA==
+    H4sIAJqvOl4AA5VTYW/TMBD97l9xJNFGkbI0m7JBpwoBy6aK0k5phwQIIdd1G6upHWwH6Nb9dxy3
+    DUk7PsyWIt27d+/unRX3RTBhPJhglSIXuZCv7oVUgiyotjFJF0TwGZt3wIfXEYSRAadUEclyzQTv
+    NCsgl4JQpThe0mYKua4L7+Ob3gB6g97YfK6Hhn9FZ7jItD/SWOoOlOcMokZC5Bsc2hDCKZxbpXhw
+    VdNBSTz+/K7fbaPbZHjTPa41Pkb94YeP171+3HWCX1gGmYEDVUzUSgVeSXfQ7Zevw2RkaPH4x90o
+    TvYEkCqHe9mCBwTbQ0kqwOfg2LkZn4OV6oBTUaaYLgVn9xT8wmT3WkAgch3U2thnqMUn+QrC04uT
+    trkhRG+is0p5a9Z7WyHfwNuA4NOfZk/f4egItChICt7OfmP2KpBUF5LvytFjaVbk//GaFtp6nYrf
+    /NDwgmUZzjLwx3Hy6UnTz3Ugl+DPnu+AYEXB8UIHGLc0+36tqsKGVXR5ueWIvE4R+SED60K19mFJ
+    D+RrtU/2etVqLte5U3hu/he7UniwNetSZr3pud72ePy3bPqHaQjrwlRhgiy8W8VfBJ0WIdwDAAA=
     '
     printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$PYZOR_SERVICE"
     chmod +x "$PYZOR_SERVICE"
@@ -2583,13 +2585,14 @@ razor_enable() {
     chmod 0700 "$RAZOR_SOCKET"
 
     PACKED_SCRIPT='
-    H4sIAKim510AA5VSXU/CMBR976+4jgXFZIyREBVCDDHTGDGYAT5ojCmlsIbRzrZTEfjvjgpzfPjg
-    +nTPPfecntsVjtwB4+4AqxAVUAEk/hJSCTKh2tRDqohksWaC17ebEEtBqFIcT+lui4QTIviIjevg
-    wHkNvBpCgd97bLWbFfQQdG6ax7mBY9TuXN1d37b9puW+Y+lGKeyqZKBmyrVXdAsFradO0E1pfu+1
-    3/WDHQGkNJb6pARzBOuPklCAw8HqrlqMj8FI1cHKKENMp4KzLwpOAvauBbgi1m7OxmwqV5fjGXjV
-    s3IlPR5ceBfVTHkd1r7MkOfUwIDg0DeowAsUi6BFQkKwN/G37p4VkupE8s04Wq7CiviPrGGiTdah
-    +OD7gScsinAUgdPzg/vDof8bQU7BGf0/AsGKgmV7FjBuaOYBS9mEKbOq0VhzRJyniHifgXWiSruw
-    pHvyudmDXqel7e1afYXH6Y9udgpzM7NYySx+PBdrj+Xvtukn0+DlhanCBBl4s4pvLtvVmoADAAA=
+    H4sIANWvOl4AA5VT72/aMBD97r/ilkTtmJSGMNEVEJq6Na1QGVQB+qHTNBljiEWwU9vZWqD/+xIX
+    svCjH2pLke7u3Xv3zor9wRsz7o2xipCNbJB4KaQSZE61iSdUEckSzQRv7hYhkYJQpThe0P0SieZE
+    8CmbNcGFizr4dYRs24ZvwU2nB51eZ5h9rvsZ8opOcRprd6Cx1E3Iz2eo7xRE8pqHKvhQg3PDFPSu
+    SjwoDIb3l912Fd2F/Zv2aWmaU9Ttf7+97nSDtuX9wdKLs7Sn0rF6Vp6Twy0UXj70w0EGC4a/R4Mg
+    3CNAKh/uYwVWCDaHkkiAy8EyczM+A0PVBKuATDBdCM6WFNwUnH0J8ESivZKMeYZSfJY8g1/7clbN
+    rg8Nv1ErmDdmna9F5mcmYJLg0sdsT7/g5AS0SEkEztb+zuxFIKlOJd+2o5fcrEje8Bql2nidiL/8
+    0PCcxTGOY3CHQfjjuOn3WpALcKfvt0CwomA5vgWMG5h5wErRYcIiarU2GJGUISI5RGCdqsp+WtID
+    +lLvUa1Pld3tWiOFZ9lfZHYKK9OzzmnWr5rrjcbL/23TJ6bBLxNThQky6e0q/gGLGIAQ3QMAAA==
     '
     printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$RAZOR_SERVICE"
     chmod +x "$RAZOR_SERVICE"
@@ -4139,7 +4142,7 @@ check_update() {
             get_yesno 'New update available. Install?'
 
             if [ "$?" = 0 ]; then
-                INFO_START=$(expr $(grep -n '# Changelog:' $TMP_UPDATE | head -1 | awk -F: '{print $1}') + 1)
+                INFO_START=$(expr $(grep -n '# Changelog:' "$TMP_UPDATE" | head -1 | awk -F: '{print $1}') + 1)
                 INFO_END=$(expr $(grep -n '###################################################################################################' "$TMP_UPDATE" | head -2 | tail -1 | awk -F: '{print $1}') - 2)
                 INFO_TEXT="$(sed -n "$INFO_START,$INFO_END p" "$TMP_UPDATE" | sed 's/^#//g' | sed 's/^ //g')"
 
@@ -4176,8 +4179,8 @@ write_examples() {
         echo '##################################' >> "$CONFIG_POSTFIX_POSTSCREEN"
         echo '# Postscreen IP whitelist (CIDR) #' >> "$CONFIG_POSTFIX_POSTSCREEN"
         echo '##################################' >> "$CONFIG_POSTFIX_POSTSCREEN"
-        echo '#88.198.215.226    permit' >> $CONFIG_POSTFIX_POSTSCREEN
-        echo '#85.10.249.206     permit' >> $CONFIG_POSTFIX_POSTSCREEN
+        echo '#88.198.215.226    permit' >> "$CONFIG_POSTFIX_POSTSCREEN"
+        echo '#85.10.249.206     permit' >> "$CONFIG_POSTFIX_POSTSCREEN"
     fi
 
     if ! [ -f "$CONFIG_POSTFIX_CLIENT" ]; then
