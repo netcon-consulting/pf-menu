@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.10.0 for Postfix
+# menu.sh V1.11.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, netcon-consulting.com
 #
@@ -16,8 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - included start/stop run-levels in Pyzor/Razor socket service scripts
-# - for the Rspamd Postfix integration also adjust milter protocol setting
+# - added Spamassassin setting for automatic whitelist updates
 #
 ###################################################################################################
 
@@ -40,6 +39,8 @@ declare -g -r DIR_CONFIG_FAIL2BAN='/etc/fail2ban'
 declare -g -r CRON_LOGMANAGER='/etc/cron.daily/log_manager.sh'
 declare -g -r SCRIPT_REBOOT='/etc/netcon-scripts/reboot-alert.sh'
 declare -g -r CRONTAB_REBOOT='@reboot /etc/netcon-scripts/reboot-alert.sh'
+declare -g -r SCRIPT_WLUPDATE='/etc/netcon-scripts/update_whitelist.sh'
+declare -g -r CRONTAB_WLUPDATE='0 0,6,12,18 * * * /etc/netcon-scripts/update_whitelist.sh'
 declare -g -r CRON_RULES='/etc/cron.daily/update_rules.sh'
 declare -g -r CONFIG_SSH="$HOME/.ssh/config"
 declare -g -r PYZOR_PLUGIN='/usr/share/rspamd/plugins/pyzor.lua'
@@ -423,6 +424,23 @@ SPAMASSASSIN_CONFIG+=('local')
 # Main
 declare -g -r LABEL_CONFIG_SPAMASSASSIN_LOCAL='Main'
 declare -g -r CONFIG_SPAMASSASSIN_LOCAL="$DIR_CONFIG_SPAMASSASSIN/local.cf"
+declare -g -r CONFIG_SPAMASSASSIN_WHITELIST="$DIR_CONFIG_SPAMASSASSIN/whitelist_from.cf"
+
+###################################################################################################
+# Spamassassin features
+declare -g -a SPAMASSASSIN_FEATURE
+
+SPAMASSASSIN_FEATURE=()
+SPAMASSASSIN_FEATURE+=('wlupdate')
+
+for FEATURE in "${SPAMASSASSIN_FEATURE[@]}"; do
+    declare -g -a SPAMASSASSIN_${FEATURE^^}
+    eval "SPAMASSASSIN_${FEATURE^^}=()"
+done
+
+# Automatic whitelist update
+declare -g -r SPAMASSASSIN_WLUPDATE_LABEL='Automatic whitelist update'
+declare -g -r SPAMASSASSIN_WLUPDATE_CUSTOM=1
 
 ###################################################################################################
 # Rspamd configs
@@ -508,8 +526,7 @@ RSPAMD_REJECT+=('reject = null;' "$CONFIG_RSPAMD_ACTIONS")
 
 # Black-/whitelists
 declare -g -r RSPAMD_BWLIST_LABEL='Black-/whitelists'
-
-declare -r RSPAMD_BWLIST_CUSTOM=1
+declare -g -r RSPAMD_BWLIST_CUSTOM=1
 
 # Bayes-learning
 declare -g -r RSPAMD_BAYES_LABEL='Bayes-learning'
@@ -528,15 +545,14 @@ RSPAMD_HISTORY+=('servers = 127.0.0.1:6379;' "$CONFIG_RSPAMD_HISTORY")
 
 # Spamassassin rules
 declare -g -r RSPAMD_SARULES_LABEL='Heinlein SA rules'
-declare -r RSPAMD_SARULES_CUSTOM=1
+declare -g -r RSPAMD_SARULES_CUSTOM=1
 
 RSPAMD_SARULES+=("ruleset = \"$FILE_RULES\";" "$CONFIG_RSPAMD_SARULES")
 RSPAMD_SARULES+=('alpha = 0.1;' "$CONFIG_RSPAMD_SARULES")
 
 # Automatic SA rules update
 declare -g -r RSPAMD_RULESUPDATE_LABEL='Automatic SA rules update'
-
-declare -r RSPAMD_RULESUPDATE_CUSTOM=1
+declare -g -r RSPAMD_RULESUPDATE_CUSTOM=1
 
 # URL reputation
 declare -g -r RSPAMD_REPUTATION_LABEL='URL reputation'
@@ -597,6 +613,7 @@ EMAIL_ADDRESSES=()
 EMAIL_ADDRESSES+=('update')
 EMAIL_ADDRESSES+=('logwatch')
 EMAIL_ADDRESSES+=('reboot')
+EMAIL_ADDRESSES+=('wlupdate')
 
 # Automatic update
 declare -g -r LABEL_EMAIL_UPDATE='Automatic update'
@@ -608,6 +625,10 @@ declare -g -r EMAIL_LOGWATCH_CHECK=1
 # Reboot alert
 declare -g -r LABEL_EMAIL_REBOOT='Reboot alert'
 declare -g -r EMAIL_REBOOT_CHECK=1
+
+# Automatic SA whitelist update
+declare -g -r LABEL_EMAIL_WLUPDATE='Automatic SA whitelist update'
+declare -g -r EMAIL_WLUPDATE_CHECK=1
 
 ###################################################################################################
 # Logs
@@ -890,7 +911,7 @@ get_yesno() {
 # $1 - setting keyword
 # $2 - setting label
 # return values:
-# stderr - 0 if setting changed, 1 if not changed
+# error code - 0 if setting changed, 1 if not changed
 toggle_setting() {
     declare SETTING_STATUS MESSAGE
     
@@ -912,6 +933,39 @@ toggle_setting() {
     fi
 
     return 1
+}
+
+# check crontab for entry
+# parameters:
+# $1 - crontab entry
+# return values:
+# error code - 0 for entry present, 1 for missing
+check_crontab() {
+    crontab -l | grep -q "^$(echo "$1" | sed 's/\*/\\\*/g')$"
+}
+
+# add crontab entry
+# parameters:
+# $1 - crontab entry
+# return values:
+# none
+add_crontab() {
+    declare CRONTAB
+
+    CRONTAB="$(crontab -l)"
+
+    [ -z "$CRONTAB" ] && CRONTAB="$1" || CRONTAB+=$'\n'"$1"
+
+    echo "$CRONTAB" | crontab -
+}
+
+# delete crontab entry
+# parameters:
+# $1 - crontab entry
+# return values:
+# none
+del_crontab() {
+    crontab -l | grep -v "^$(echo "$1" | sed 's/\*/\\\*/g')$" | crontab -
 }
 
 # check whether Postfix is installed
@@ -1039,7 +1093,7 @@ check_installed_logmanager() {
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_reboot() {
-    if [ -f "$SCRIPT_REBOOT" ] && crontab -l | grep -q "$CRONTAB_REBOOT"; then
+    if [ -f "$SCRIPT_REBOOT" ] && check_crontab "$CRONTAB_REBOOT"; then
         return 0
     else
         return 1
@@ -2815,15 +2869,195 @@ rspamd_info() {
     show_info 'Rspamd info & stats' "$INFO"
 }
 
-# sync Spamassassin config with other peer
+# check SA whitelist update status
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 for disabled
+wlupdate_status() {
+    [ -f "$SCRIPT_WLUPDATE" ] && grep -q '^Host whitelist$' "$CONFIG_SSH" && check_crontab "$CRONTAB_WLUPDATE"
+}
+
+# enable SA whitelist update
+# parameters:
+# none
+# return values:
+# error code - 0 for changes made, 1 for no changes made
+wlupdate_enable() {
+    declare -r DIR_SSH="$HOME/.ssh"
+    declare -r PACKED_SCRIPT='
+    H4sIAOgeh14AA3VUYW+iQBD9zq+YUlM0PcCa3JdebDRKTxNrG7HXXFpLVliFlF3I7nJt77z/fgNV
+    QeqR1azuvjdvZt5wemIvI24viQw17RSyNCCKeq9hpGgcSWXJEH5cWG2rrZ3i8SBJ30W0DhU0/RZ0
+    2p02TKkaJBzuuaKC05BRLpdUEJXxNXxny9EX4FT5CTfxI7NYRXxt+Qkr6PqZChNxCTdE+DCMqHiR
+    lEOTWcF23zuKbWma64680a077xp7qYbm3PTHE2/mDMZ3Y2eKZ9kr7WUyYYwKK6CGpl2PJ473MBrP
+    nck4B9tIb8uUMCIlLizEns5biYRZ/gpR81l/6t7dzubeTf9uC0oTqVbRm81IKm0lCJdpIlCDlhN7
+    /eFw5rhuV280JVZQb+z06tC5sgP6y+ZZHMMGlAAzAONJGC1d06IVPIL5G+9XWXRYfAMVUq4BPsNb
+    zHJayRJjUD9MEFTLX98AeX0B81rv6WD8SUXEFTQ6f/NQOVPxtYVM+j+7hlH+jTJWyHiQOeqAs7Mq
+    AkOvBU1Bf27UZYH+Gf6hp6oEdhLBeHx6wrVYGMekbqtShj6qJYjWcC7RUQrOeRJwKakP7A2BdXW5
+    FpnfM7nIu0CiGMyLIwKrpSq7c6Cj0pv8+ejFgHCeKAgoTgWLOAWWhxA0Ju96efUtUnBR/KSxpIcU
+    hiNEImBNVW57KG2OKgsyU2LR7ot5hYfd6QL+CzNdkEyl3ar8y85XHUyBKTVDNDQnjLZ65R692dKP
+    GKtQuoq0veq66beGPHQxlpyi16X9XJsysAv3b2t8sjPf4bDmHd9s8KxOe9LN5ftEfYa0/teeGsXV
+    Z+gesN/Id6ko81XRxoQEUH1vwFk51rvq4PoHZwjOYF4FAAA=
+    '
+    declare IP_ADDRESS RET_CODE SSH_PORT SSH_KEY
+
+    if [ -d "$DIR_SSH" ] && ! [ -z "$(ls "$DIR_SSH"/*)" ]; then
+        exec 3>&1
+        IP_ADDRESS="$(get_input 'Whitelist server IP address' 'Enter whitelist server IP address')"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            exec 3>&1
+            SSH_PORT="$(get_input 'Whitelist server SSH port' 'Enter whitelist server SSH port' '22')"
+            RET_CODE="$?"
+            exec 3>&-
+
+            if [ "$RET_CODE" = 0 ]; then
+                exec 3>&1
+                SSH_KEY="$(get_file 'Select SSH key' "$DIR_SSH")"
+                RET_CODE="$?"
+                exec 3>&-
+
+                if [ "$RET_CODE" = 0 ]; then
+                    show_wait
+
+                    if ! [ -z "$(ssh -o 'StrictHostKeyChecking=accept-new' -p "$SSH_PORT" "whitelist@$IP_ADDRESS" -i "$SSH_KEY" 2>/dev/null)" ]; then
+                        echo $'\n''Host whitelist'$'\n\t'"HostName $IP_ADDRESS"$'\n\t''User whitelist'$'\n\t'"Port $SSH_PORT"$'\n\t'"IdentityFile $SSH_KEY"$'\n' >> "$CONFIG_SSH"
+
+                        mkdir -p "$(dirname "$SCRIPT_WLUPDATE")"
+                        printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$SCRIPT_WLUPDATE"
+                        chmod 700 "$SCRIPT_WLUPDATE"
+                        "$SCRIPT_WLUPDATE"
+
+                        add_crontab "$CRONTAB_WLUPDATE"
+
+                        return 0
+                    else
+                        show_info 'Error' 'Error getting whitelist from server.'
+                    fi
+                fi
+            fi
+        fi
+    else
+        show_info 'Error' 'No SSH keys for connection to whitelist server available.'
+    fi
+
+    return 1
+}
+
+# disable SA whitelist update
 # parameters:
 # none
 # return values:
 # none
-spamassassin_sync() {
-    show_wait
-    rsync -avzh -e ssh "$DIR_CONFIG_SPAMASSASSIN" mx:"$DIR_CONFIG_SPAMASSASSIN" &>/dev/null
-    ssh mx systemctl reload spamassassin &>/dev/null
+wlupdate_disable() {
+    del_crontab "$CRONTAB_WLUPDATE"
+
+    rm -f "$SCRIPT_WLUPDATE"
+
+    sed -i '/^Host whitelist/,/^$/d' "$CONFIG_SSH"
+}
+
+# checks status of given Spamassassin feature
+# parameters:
+# $1 - feature label
+# return values:
+# stdout - feature status
+spamassassin_feature_status() {
+    if [ "$(eval echo \"\$SPAMASSASSIN_${1^^}_CUSTOM\")" = 1 ] && ! "${1}_status"; then
+        echo off
+        return
+    fi
+
+    echo on
+}
+
+# enable given Spamassassin feature
+# parameters:
+# $1 - feature label
+# return values:
+# error code - 0 for changes made, 1 for no changes made
+spamassassin_feature_enable() {
+    if [ "$(eval echo \"\$SPAMASSASSIN_${1^^}_CUSTOM\")" = 1 ] && ! "${1}_enable"; then
+        return 1
+    fi
+
+    return 0
+}
+
+# disable given Spamassassin feature
+# parameters:
+# $1 - feature label
+# return values:
+# error code - 0 for changes made, 1 for no changes made
+spamassassin_feature_disable() {
+    if [ "$(eval echo \"\$SPAMASSASSIN_${1^^}_CUSTOM\")" = 1 ] && ! "${1}_disable"; then
+        return 1
+    fi
+
+    return 0
+}
+
+# restart Spamassassin
+# parameters:
+# none
+# return values:
+# none
+spamassassin_restart() {
+    service spamassassin restart &>/dev/null
+}
+
+# enable/disable Spamassassin features in dialog checklist
+# parameters:
+# none
+# return values:
+# none
+spamassassin_feature() {
+    declare -a MENU_SPAMASSASSIN_FEATURE
+    declare DIALOG_RET RET_CODE SPAMASSASSIN_RESTART FEATURE
+
+    MENU_SPAMASSASSIN_FEATURE=()
+
+    for FEATURE in "${SPAMASSASSIN_FEATURE[@]}"; do
+        if [ "$(eval echo \"\$SPAMASSASSIN_${FEATURE^^}_CHECK\")" != 1 ] || "check_installed_$FEATURE"; then
+            declare -r STATUS_SPAMASSASSIN_${FEATURE^^}="$(spamassassin_feature_status "$FEATURE")"
+
+            MENU_SPAMASSASSIN_FEATURE+=("$FEATURE" "$(eval echo \"\$SPAMASSASSIN_${FEATURE^^}_LABEL\")" "$(eval echo \"\$STATUS_SPAMASSASSIN_${FEATURE^^}\")")
+        fi
+    done
+
+    while true; do
+        exec 3>&1
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Select' --no-tags --extra-button --extra-label 'Help' --checklist 'Choose Spamassassin features to enable' 0 0 0 "${MENU_SPAMASSASSIN_FEATURE[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            show_wait
+            SPAMASSASSIN_RESTART=0
+
+            for FEATURE in "${SPAMASSASSIN_FEATURE[@]}"; do
+                if echo "$DIALOG_RET" | grep -E -q "(^| )$FEATURE($| )"; then
+                    if [ "$(eval echo \"\$SPAMASSASSIN_${FEATURE^^}_FORCE\")" = 1 ] || [ "$(eval echo \"\$STATUS_SPAMASSASSIN_${FEATURE^^}\")" = 'off' ]; then
+                        spamassassin_feature_enable "$FEATURE" && SPAMASSASSIN_RESTART=1
+                    fi
+                else
+                    if [ "$(eval echo \"\$STATUS_SPAMASSASSIN_${FEATURE^^}\")" = 'on' ]; then
+                        spamassassin_feature_disable "$FEATURE" && SPAMASSASSIN_RESTART=1
+                    fi
+                fi
+            done
+
+            [ "$SPAMASSASSIN_RESTART" = 1 ] && spamassassin_restart
+
+            break
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_SPAMASSASSIN_FEATURE"
+        else
+            break
+        fi
+    done
 }
 
 # select Spamassassin configuration file for editing in dialog menu
@@ -2922,6 +3156,17 @@ spamassassin_info() {
             break
         fi
     done
+}
+
+# sync Spamassassin config with other peer
+# parameters:
+# none
+# return values:
+# none
+spamassassin_sync() {
+    show_wait
+    rsync -avzh -e ssh "$DIR_CONFIG_SPAMASSASSIN" mx:"$DIR_CONFIG_SPAMASSASSIN" &>/dev/null
+    ssh mx systemctl reload spamassassin &>/dev/null
 }
 
 # select Fail2ban configuration file for editing in dialog menu
@@ -3232,6 +3477,24 @@ set_email_reboot() {
     sed -E -i "s/ \S+$/ $1/" "$SCRIPT_REBOOT"
 }
 
+# get SA whitelist update email address
+# parameters:
+# none
+# return values:
+# stdout - get SA whitelist update email address
+get_email_wlupdate() {
+    grep -E '^EMAIL_RECIPIENT=' "$SCRIPT_WLUPDATE" | awk "match(\$0, /^EMAIL_RECIPIENT='([^']+)'$/, a) {print a[1]}"
+}
+
+# set get SA whitelist update email address
+# parameters:
+# $1 - get SA whitelist update email address
+# return values:
+# none
+set_email_wlupdate() {
+    sed -E -i "s/^EMAIL_RECIPIENT='[^']+'$/EMAIL_RECIPIENT='$1'/" "$SCRIPT_WLUPDATE"
+}
+
 # configure email addresses in dialog menu
 # parameters:
 # none
@@ -3245,7 +3508,7 @@ email_addresses() {
         MENU_EMAIL=()
 
         for EMAIL_ADDRESS in "${EMAIL_ADDRESSES[@]}"; do
-            if [ "$(eval echo \"\$EMAIL_${EMAIL_ADDRESS^^}_CHECK\")" != 1 ] || "check_installed_$EMAIL_ADDRESS"; then
+            if [ "$(eval echo \"\$EMAIL_${EMAIL_ADDRESS^^}_CHECK\")" != 1 ] || "check_installed_$EMAIL_ADDRESS" 2>/dev/null || "${EMAIL_ADDRESS}_status" 2>/dev/null; then
                 MENU_EMAIL+=("$EMAIL_ADDRESS" "$(eval echo \"\$LABEL_EMAIL_${EMAIL_ADDRESS^^}\") ($(get_email_$EMAIL_ADDRESS))")
             fi
         done
@@ -3547,14 +3810,11 @@ install_reboot() {
     H4sIABqv+F0AA1NW1E/KzNMvzuBKTc7IV1BPzEksylVIK8rPVYiP9/APDon3c/R1jY9XV6hRyE3M
     zFHQLVZQD64sLknNVShKTcrPL1HIz0NXWgQU5gIA+EhgLFoAAAA=
     '
-    declare CRONTAB_CURRENT
 
     mkdir -p "$(dirname "$SCRIPT_REBOOT")"
     printf '%s' $PACKED_SCRIPT | base64 -d | gunzip | sed "s/__HOST_NAME__/$(hostname -f)/g" > "$SCRIPT_REBOOT"
 
-    CRONTAB_CURRENT="$(crontab -l)"
-
-    echo "$CRONTAB_CURRENT" | grep -q "$CRONTAB_REBOOT" || echo "$CRONTAB_CURRENT"$'\n'"$CRONTAB_REBOOT" | crontab -
+    add_crontab "$CRONTAB_REBOOT"
 }
 
 # setup peer
@@ -3747,7 +4007,7 @@ menu_resolver() {
     declare -r TAG_FORWARD='resolver_forward'
     declare -r TAG_LOCAL='resolver_local'
     declare -r TAG_SYNC='resolver_sync'
-    declare -r LABEL_CONFIG='Config'
+    declare -r LABEL_CONFIG='Config files'
     declare -r LABEL_FORWARD='Forward zones'
     declare -r LABEL_LOCAL='Local zones'
     declare -r LABEL_SYNC='Sync cluster'
@@ -3783,7 +4043,7 @@ menu_resolver() {
 menu_postfwd() {
     declare -r TAG_CONFIG='postfwd_config'
     declare -r TAG_SYNC='postfwd_sync'
-    declare -r LABEL_CONFIG='Config'
+    declare -r LABEL_CONFIG='Config files'
     declare -r LABEL_SYNC='Sync cluster'
     declare -a MENU_POSTFWD
 
@@ -3815,7 +4075,7 @@ menu_postfwd() {
 menu_dkim() {
     declare -r TAG_CONFIG='dkim_config'
     declare -r TAG_SYNC='dkim_sync'
-    declare -r LABEL_CONFIG='Config'
+    declare -r LABEL_CONFIG='Config files'
     declare -r LABEL_SYNC='Sync cluster'
     declare -a MENU_DKIM
 
@@ -3847,7 +4107,7 @@ menu_dkim() {
 menu_spf() {
     declare -r TAG_CONFIG='spf_config'
     declare -r TAG_SYNC='spf_sync'
-    declare -r LABEL_CONFIG='Config'
+    declare -r LABEL_CONFIG='Config files'
     declare -r LABEL_SYNC='Sync cluster'
     declare -a MENU_SPF
 
@@ -3877,15 +4137,18 @@ menu_spf() {
 # return values:
 # none
 menu_spamassassin() {
+    declare -r TAG_FEATURE='spamassassin_feature'
     declare -r TAG_CONFIG='spamassassin_config'
     declare -r TAG_INFO='spamassassin_info'
     declare -r TAG_SYNC='spamassassin_sync'
-    declare -r LABEL_CONFIG='Config'
+    declare -r LABEL_FEATURE='Settings'
+    declare -r LABEL_CONFIG='Config files'
     declare -r LABEL_INFO='Info & Stats'
     declare -r LABEL_SYNC='Sync cluster'
     declare -a MENU_SPAMASSASSIN
 
     MENU_SPAMASSASSIN=()
+    MENU_SPAMASSASSIN+=("$TAG_FEATURE" "$LABEL_FEATURE")
     MENU_SPAMASSASSIN+=("$TAG_CONFIG" "$LABEL_CONFIG")
     MENU_SPAMASSASSIN+=("$TAG_INFO" "$LABEL_INFO")
     check_installed_peer && MENU_SPAMASSASSIN+=("$TAG_SYNC" "$LABEL_SYNC")
@@ -3916,8 +4179,8 @@ menu_rspamd() {
     declare -r TAG_CONFIG='rspamd_config'
     declare -r TAG_INFO='rspamd_info'
     declare -r TAG_SYNC='rspamd_sync'
-    declare -r LABEL_FEATURE='Feature'
-    declare -r LABEL_CONFIG='Config'
+    declare -r LABEL_FEATURE='Settings'
+    declare -r LABEL_CONFIG='Config files'
     declare -r LABEL_INFO='Info & Stats'
     declare -r LABEL_SYNC='Sync cluster'
     declare -a MENU_RSPAMD
@@ -3953,7 +4216,7 @@ menu_fail2ban() {
     declare -r TAG_CONFIG='fail2ban_config'
     declare -r TAG_JAIL='fail2ban_jail'
     declare -r TAG_SYNC='fail2ban_sync'
-    declare -r LABEL_CONFIG='Config'
+    declare -r LABEL_CONFIG='Config files'
     declare -r LABEL_JAIL='Jails'
     declare -r LABEL_SYNC='Sync cluster'
     declare -a MENU_FAIL2BAN
