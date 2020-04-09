@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# menu.sh V1.11.0 for Postfix
+# menu.sh V1.12.0 for Postfix
 #
-# Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, netcon-consulting.com
+# Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
 # Authors:
 # Marc Dierksen (m.dierksen@netcon-consulting.com)
@@ -16,7 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - added Spamassassin setting for automatic whitelist updates
+# - added Postscreen feature automatic whitelist update
 #
 ###################################################################################################
 
@@ -41,6 +41,8 @@ declare -g -r SCRIPT_REBOOT='/etc/netcon-scripts/reboot-alert.sh'
 declare -g -r CRONTAB_REBOOT='@reboot /etc/netcon-scripts/reboot-alert.sh'
 declare -g -r SCRIPT_WLUPDATE='/etc/netcon-scripts/update_whitelist.sh'
 declare -g -r CRONTAB_WLUPDATE='0 0,6,12,18 * * * /etc/netcon-scripts/update_whitelist.sh'
+declare -g -r SCRIPT_PSWLUPDATE='/etc/netcon-scripts/getspf.sh'
+declare -g -r CRONTAB_PSWLUPDATE='@daily /etc/netcon-scripts/getspf.sh -p -s /etc/postfix/maps/domains'
 declare -g -r CRON_RULES='/etc/cron.daily/update_rules.sh'
 declare -g -r CONFIG_SSH="$HOME/.ssh/config"
 declare -g -r PYZOR_PLUGIN='/usr/share/rspamd/plugins/pyzor.lua'
@@ -140,6 +142,7 @@ declare -g -a POSTFIX_CONFIG_SERVER
 
 POSTFIX_CONFIG_SERVER=()
 POSTFIX_CONFIG_SERVER+=('postscreen')
+POSTFIX_CONFIG_SERVER+=('pswlupdate')
 POSTFIX_CONFIG_SERVER+=('client')
 POSTFIX_CONFIG_SERVER+=('sender')
 POSTFIX_CONFIG_SERVER+=('recipient')
@@ -152,6 +155,10 @@ POSTFIX_CONFIG_SERVER+=('header')
 # Postscreen access IPs
 declare -g -r LABEL_CONFIG_POSTFIX_POSTSCREEN='Postscreen access IPs'
 declare -g -r CONFIG_POSTFIX_POSTSCREEN="$DIR_MAPS/check_postscreen_access_ips"
+
+# Postscreen whitelist domains
+declare -g -r LABEL_CONFIG_POSTFIX_PSWLUPDATE='Postscreen whitelist domains'
+declare -g -r CONFIG_POSTFIX_PSWLUPDATE="$DIR_MAPS/domains"
 
 # Client access IPs
 declare -g -r LABEL_CONFIG_POSTFIX_CLIENT='Client access IPs'
@@ -217,7 +224,6 @@ POSTFIX_FEATURE+=('milter')
 POSTFIX_FEATURE+=('bounce')
 POSTFIX_FEATURE+=('limit')
 POSTFIX_FEATURE+=('postscreen')
-POSTFIX_FEATURE+=('psdeep')
 POSTFIX_FEATURE+=('submission')
 POSTFIX_FEATURE+=('recipient')
 POSTFIX_FEATURE+=('postfwd')
@@ -307,8 +313,8 @@ declare -g -r POSTSCREEN_BLACKLISTS='zen.spamhaus.org*3 b.barracudacentral.org*2
 
 declare -g -r POSTFIX_POSTSCREEN_LABEL='Postscreen'
 declare -g -r POSTFIX_POSTSCREEN_CUSTOM=1
+declare -g -r POSTFIX_POSTSCREEN_FORCE=1
 
-POSTFIX_POSTSCREEN+=("postscreen_access_list=permit_mynetworks cidr:$CONFIG_POSTFIX_POSTSCREEN")
 POSTFIX_POSTSCREEN+=('postscreen_blacklist_action=enforce')
 POSTFIX_POSTSCREEN+=('postscreen_command_time_limit=${stress?10}${stress:300}s')
 POSTFIX_POSTSCREEN+=('postscreen_dnsbl_action=enforce')
@@ -318,15 +324,27 @@ POSTFIX_POSTSCREEN+=('postscreen_dnsbl_ttl=1h')
 POSTFIX_POSTSCREEN+=('postscreen_greet_action=enforce')
 POSTFIX_POSTSCREEN+=('postscreen_greet_wait=${stress?4}${stress:15}s')
 
-# Postscreen Deep
-declare -g -r POSTFIX_PSDEEP_LABEL='Postscreen Deep'
+declare -g -a POSTSCREEN_FEATURE
 
-POSTFIX_PSDEEP+=('postscreen_bare_newline_enable=yes')
-POSTFIX_PSDEEP+=('postscreen_bare_newline_action=enforce')
-POSTFIX_PSDEEP+=('postscreen_non_smtp_command_action=enforce')
-POSTFIX_PSDEEP+=('postscreen_non_smtp_command_enable=yes')
-POSTFIX_PSDEEP+=('postscreen_pipelining_enable=yes')
-POSTFIX_PSDEEP+=('postscreen_dnsbl_whitelist_threshold=-1')
+POSTSCREEN_FEATURE=()
+POSTSCREEN_FEATURE+=('psdeep')
+POSTSCREEN_FEATURE+=('pswlupdate')
+
+declare -g -r POSTSCREEN_PSDEEP_LABEL='Postscreen Deep'
+
+declare -g -a POSTSCREEN_PSDEEP
+
+POSTSCREEN_PSDEEP=()
+POSTSCREEN_PSDEEP+=('postscreen_bare_newline_enable=yes')
+POSTSCREEN_PSDEEP+=('postscreen_bare_newline_action=enforce')
+POSTSCREEN_PSDEEP+=('postscreen_non_smtp_command_action=enforce')
+POSTSCREEN_PSDEEP+=('postscreen_non_smtp_command_enable=yes')
+POSTSCREEN_PSDEEP+=('postscreen_pipelining_enable=yes')
+POSTSCREEN_PSDEEP+=('postscreen_dnsbl_whitelist_threshold=-1')
+
+declare -g -r POSTSCREEN_PSWLUPDATE_LABEL='Automatic whitelist update'
+
+declare -g -r POSTSCREEN_WHITELIST_SPF="$DIR_MAPS/postscreen_spf_whitelist.cidr"
 
 # Submission port
 declare -g -r POSTFIX_SUBMISSION_LABEL='Submission port'
@@ -1274,14 +1292,121 @@ bounce_disable() {
 # return values:
 # error code - 0 for enabled, 1 for disabled
 postscreen_status() {
-    if postconf -M '25/inet' 2>/dev/null | grep -q -E '^25\s+inet\s+n\s+-\s+n\s+-\s+1\s+postscreen$'                       \
-        && postconf -M 'smtpd/pass' 2>/dev/null | grep -q -E '^smtpd\s+pass\s+-\s+-\s+n\s+-\s+-\s+smtpd$'                  \
-        && postconf -M 'dnsblog/unix' 2>/dev/null | grep -q -E '^dnsblog\s+unix\s+-\s+-\s+n\s+-\s+0\s+dnsblog$'            \
-        && postconf -M 'tlsproxy/unix' 2>/dev/null | grep -q -E '^tlsproxy\s+unix\s+-\s+-\s+n\s+-\s+0\s+tlsproxy$'; then
+    if postconf 'postscreen_access_list' 2>/dev/null | sed -E 's/^postscreen_access_list = ?//' | grep -q -E "^permit_mynetworks cidr:$CONFIG_POSTFIX_POSTSCREEN( cidr:$POSTSCREEN_WHITELIST_SPF)?$" \
+        && postconf -M 'smtp/inet' 2>/dev/null | grep -q -E '^smtp\s+inet\s+n\s+-\s+y\s+-\s+1\s+postscreen$'                                                                                         \
+        && postconf -M 'smtpd/pass' 2>/dev/null | grep -q -E '^smtpd\s+pass\s+-\s+-\s+y\s+-\s+-\s+smtpd(\s+-o\s+content_filter=spamassassin)?$'                                                      \
+        && postconf -M 'dnsblog/unix' 2>/dev/null | grep -q -E '^dnsblog\s+unix\s+-\s+-\s+y\s+-\s+0\s+dnsblog$'                                                                                      \
+        && postconf -M 'tlsproxy/unix' 2>/dev/null | grep -q -E '^tlsproxy\s+unix\s+-\s+-\s+y\s+-\s+0\s+tlsproxy$'; then
         return 0
     else
         return 1
     fi
+}
+
+psdeep_status() {
+    declare POSTFIX_SETTING SETTING_KEY
+
+    for POSTFIX_SETTING in "${POSTSCREEN_PSDEEP[@]}"; do
+        SETTING_KEY="$(echo "$POSTFIX_SETTING" | awk -F= '{print $1}')"
+        if [ "$(postconf "$SETTING_KEY" 2>/dev/null | sed -E "s/^$SETTING_KEY = ?//")" != "$(echo "$POSTFIX_SETTING" | sed "s/^$SETTING_KEY=//")" ]; then
+            echo 'off'
+            return
+        fi
+    done
+
+    echo 'on'
+}
+
+psdeep_enable() {
+    declare POSTFIX_SETTING
+
+    for POSTFIX_SETTING in "${POSTSCREEN_PSDEEP[@]}"; do
+        postconf "$POSTFIX_SETTING" 2>/dev/null
+    done
+
+    return 0
+}
+
+psdeep_disable() {
+    declare POSTFIX_SETTING SETTING_KEY
+
+    for POSTFIX_SETTING in "${POSTSCREEN_PSDEEP[@]}"; do
+        SETTING_KEY="$(echo "$POSTFIX_SETTING" | awk -F= '{print $1}')"
+        postconf "$SETTING_KEY=$(postconf -d "$SETTING_KEY" 2>/dev/null | sed -E "s/^$SETTING_KEY = ?//")" 2>/dev/null
+    done
+
+    return 0
+}
+
+pswlupdate_status() {
+    if ! postconf 'postscreen_access_list' 2>/dev/null | sed -E 's/^postscreen_access_list = ?//' | grep -q -E "^permit_mynetworks cidr:$CONFIG_POSTFIX_POSTSCREEN cidr:$POSTSCREEN_WHITELIST_SPF$" \
+        || ! [ -f "$SCRIPT_PSWLUPDATE" ] || ! check_crontab "$CRONTAB_PSWLUPDATE"; then
+        echo 'off'
+        return
+    fi
+
+    echo 'on'
+}
+
+pswlupdate_enable() {
+    declare -r PACKED_SCRIPT='
+    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
+    ZtUGIAAA
+    '
+
+    mkdir -p "$(dirname "$SCRIPT_PSWLUPDATE")"
+    printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$SCRIPT_PSWLUPDATE"
+    chmod 700 "$SCRIPT_PSWLUPDATE"
+    "$SCRIPT_PSWLUPDATE"
+
+    check_crontab "$CRONTAB_PSWLUPDATE" || add_crontab "$CRONTAB_PSWLUPDATE"
+
+    postconf "postscreen_access_list=permit_mynetworks cidr:$CONFIG_POSTFIX_POSTSCREEN cidr:$POSTSCREEN_WHITELIST_SPF" 2>/dev/null
+}
+
+pswlupdate_disable() {
+    del_crontab "$CRONTAB_PSWLUPDATE"
+
+    rm -f "$SCRIPT_PSWLUPDATE"
 }
 
 # enable Postscreen
@@ -1290,10 +1415,46 @@ postscreen_status() {
 # return values:
 # none
 postscreen_enable() {
-    postconf -Me '25/inet=25 inet n - n - 1 postscreen' 2>/dev/null
-    postconf -Me 'smtpd/pass=smtpd pass - - n - - smtpd' 2>/dev/null
-    postconf -Me 'dnsblog/unix=dnsblog unix - - n - 0 dnsblog' 2>/dev/null
-    postconf -Me 'tlsproxy/unix=tlsproxy unix - - n - 0 tlsproxy' 2>/dev/null
+    declare -a MENU_POSTSCREEN_FEATURE
+    declare DIALOG_RET RET_CODE FEATURE
+
+    MENU_POSTSCREEN_FEATURE=()
+
+    for FEATURE in "${POSTSCREEN_FEATURE[@]}"; do
+        declare -r STATUS_POSTSCREEN_${FEATURE^^}="$("${FEATURE}_status")"
+
+        MENU_POSTSCREEN_FEATURE+=("$FEATURE" "$(eval echo \"\$POSTSCREEN_${FEATURE^^}_LABEL\")" "$(eval echo \"\$STATUS_POSTSCREEN_${FEATURE^^}\")")
+    done
+
+    while true; do
+        exec 3>&1
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Select' --no-tags --extra-button --extra-label 'Help' --checklist 'Choose Postscreen features to enable' 0 0 0 "${MENU_POSTSCREEN_FEATURE[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            for FEATURE in "${POSTSCREEN_FEATURE[@]}"; do
+                if echo "$DIALOG_RET" | grep -E -q "(^| )$FEATURE($| )"; then
+                    "${FEATURE}_enable"
+                else
+                    "${FEATURE}_disable"
+                fi
+            done
+
+            break
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_POSTSCREEN_FEATURE"
+        else
+            return 1
+        fi
+    done
+
+    [ "$(pswlupdate_status)" = 'off' ] && postconf "postscreen_access_list=permit_mynetworks cidr:$CONFIG_POSTFIX_POSTSCREEN" 2>/dev/null
+
+    postconf -Me 'smtp/inet=smtp inet n - y - 1 postscreen' 2>/dev/null
+    [ "$(postfix_feature_status 'spamassassin')" = 'off' ] && postconf -Me 'smtpd/pass=smtpd pass - - y - - smtpd' 2>/dev/null
+    postconf -Me 'dnsblog/unix=dnsblog unix - - y - 0 dnsblog' 2>/dev/null
+    postconf -Me 'tlsproxy/unix=tlsproxy unix - - y - 0 tlsproxy' 2>/dev/null
 }
 
 # disable Postscreen
@@ -1302,8 +1463,13 @@ postscreen_enable() {
 # return values:
 # none
 postscreen_disable() {
-    postconf -MX '25/inet' 2>/dev/null
-    postconf -MX 'smtpd/pass' 2>/dev/null
+    [ "$(pswlupdate_status)" = 'on' ] && pswlupdate_disable
+    [ "$(psdeep_status)" = 'on' ] && psdeep_disable
+
+    postconf "postscreen_access_list=$(postconf -d 'postscreen_access_list' 2>/dev/null | sed -E 's/^$postscreen_access_list = ?//')" 2>/dev/null
+
+    postconf -MX 'smtp/inet' 2>/dev/null
+    [ "$(postfix_feature_status 'spamassassin')" = 'off' ] && postconf -MX 'smtpd/pass' 2>/dev/null
     postconf -MX 'dnsblog/unix' 2>/dev/null
     postconf -MX 'tlsproxy/unix' 2>/dev/null
 }
@@ -1535,7 +1701,7 @@ spamassassin_enable() {
 # return values:
 # none
 spamassassin_disable() {
-    postconf -MX 'smtpd/pass' 2>/dev/null
+    postscreen_status || postconf -MX 'smtpd/pass' 2>/dev/null
     postconf -MX 'spamassassin/unix' 2>/dev/null
 }
 
@@ -1619,7 +1785,7 @@ spf_disable() {
     postconf -MX 'policyd-spf/unix' 2>/dev/null
 }
 
-# check Rspamd status
+# check DKIM status
 # parameters:
 # none
 # return values:
@@ -1632,7 +1798,7 @@ dkim_status() {
     fi
 }
 
-# enable Rspamd
+# enable DKIM
 # parameters:
 # none
 # return values:
@@ -1647,7 +1813,7 @@ dkim_enable() {
     postconf "smtpd_milters=$LIST_MILTER" 2>/dev/null
 }
 
-# disable Rspamd
+# disable DKIM
 # parameters:
 # none
 # return values:
@@ -1677,19 +1843,19 @@ postfix_feature_status() {
     declare POSTFIX_SETTING SETTING_KEY
 
     if [ "$(eval echo \"\$POSTFIX_${1^^}_CUSTOM\")" = 1 ] && ! "${1}_status"; then
-        echo off
+        echo 'off'
         return
     fi
 
     while read POSTFIX_SETTING; do
         SETTING_KEY="$(echo "$POSTFIX_SETTING" | awk -F= '{print $1}')"
         if [ "$(postconf "$SETTING_KEY" 2>/dev/null | sed -E "s/^$SETTING_KEY = ?//")" != "$(echo "$POSTFIX_SETTING" | sed "s/^$SETTING_KEY=//")" ]; then
-            echo off
+            echo 'off'
             return
         fi
     done < <(eval "for ELEMENT in \"\${POSTFIX_${1^^}[@]}\"; do echo \"\$ELEMENT\"; done")
 
-    echo on
+    echo 'on'
 }
 
 # enable given Postfix feature
@@ -1700,8 +1866,8 @@ postfix_feature_status() {
 postfix_feature_enable() {
     declare POSTFIX_SETTING
 
-    if [ "$(eval echo \"\$POSTFIX_${1^^}_CUSTOM\")" = 1 ] && ! "${1}_enable"; then
-        return 1
+    if [ "$(eval echo \"\$POSTFIX_${1^^}_CUSTOM\")" = 1 ]; then
+        "${1}_enable" || return 1
     fi
 
     while read POSTFIX_SETTING; do
@@ -1719,8 +1885,8 @@ postfix_feature_enable() {
 postfix_feature_disable() {
     declare POSTFIX_SETTING SETTING_KEY
 
-    if [ "$(eval echo \"\$POSTFIX_${1^^}_CUSTOM\")" = 1 ] && ! "${1}_disable"; then
-        return 1
+    if [ "$(eval echo \"\$POSTFIX_${1^^}_CUSTOM\")" = 1 ]; then
+        "${1}_disable" || return 1
     fi
 
     while read POSTFIX_SETTING; do
@@ -2687,7 +2853,7 @@ rspamd_feature_status() {
     declare COUNTER RSPAMD_SETTING SETTING_KEY SETTING_VALUE FILE_CONFIG
 
     if [ "$(eval echo \"\$RSPAMD_${1^^}_CUSTOM\")" = 1 ] && ! "${1}_status"; then
-        echo off
+        echo 'off'
         return
     fi
 
@@ -2698,12 +2864,12 @@ rspamd_feature_status() {
         FILE_CONFIG="$(eval echo \"\${RSPAMD_${1^^}[\$\(expr $COUNTER \\\* 2 + 1\)]}\")"
 
         if ! [ -f "$FILE_CONFIG" ] || [ "$(grep "^$SETTING_KEY = " "$FILE_CONFIG" | sed -E "s/^$SETTING_KEY = ?//")" != "$SETTING_VALUE" ]; then
-            echo off
+            echo 'off'
             return
         fi
     done
 
-    echo on
+    echo 'on'
 }
 
 # enable given Rspamd feature
@@ -2966,11 +3132,11 @@ wlupdate_disable() {
 # stdout - feature status
 spamassassin_feature_status() {
     if [ "$(eval echo \"\$SPAMASSASSIN_${1^^}_CUSTOM\")" = 1 ] && ! "${1}_status"; then
-        echo off
+        echo 'off'
         return
     fi
 
-    echo on
+    echo 'on'
 }
 
 # enable given Spamassassin feature
@@ -4444,6 +4610,11 @@ write_examples() {
         echo '##################################' >> "$CONFIG_POSTFIX_POSTSCREEN"
         echo '#88.198.215.226    permit' >> "$CONFIG_POSTFIX_POSTSCREEN"
         echo '#85.10.249.206     permit' >> "$CONFIG_POSTFIX_POSTSCREEN"
+    fi
+
+    if ! [ -f "$CONFIG_POSTFIX_PSWLUPDATE" ]; then
+        echo 'google.com' >> "$CONFIG_POSTFIX_PSWLUPDATE"
+        echo 'microsoft.com' >> "$CONFIG_POSTFIX_PSWLUPDATE"
     fi
 
     if ! [ -f "$CONFIG_POSTFIX_CLIENT" ]; then
