@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.12.0 for Postfix
+# menu.sh V1.13.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,8 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - added Postscreen feature automatic whitelist update
+# - added Virtual aliases Postfix feature
+# - added option for managing admin email addresses
 #
 ###################################################################################################
 
@@ -151,6 +152,7 @@ POSTFIX_CONFIG_SERVER+=('esmtp')
 POSTFIX_CONFIG_SERVER+=('rewrite')
 POSTFIX_CONFIG_SERVER+=('milter')
 POSTFIX_CONFIG_SERVER+=('header')
+POSTFIX_CONFIG_SERVER+=('alias')
 
 # Postscreen access IPs
 declare -g -r LABEL_CONFIG_POSTFIX_POSTSCREEN='Postscreen access IPs'
@@ -192,6 +194,10 @@ declare -g -r CONFIG_POSTFIX_MILTER="$DIR_MAPS/smtpd_milter_map"
 declare -g -r LABEL_CONFIG_POSTFIX_HEADER='Header checks'
 declare -g -r CONFIG_POSTFIX_HEADER="$DIR_MAPS/check_header"
 
+# Virtual aliases
+declare -g -r LABEL_CONFIG_POSTFIX_ALIAS='Virtual aliases'
+declare -g -r CONFIG_POSTFIX_ALIAS="$DIR_MAPS/virtual_aliases"
+
 ###################################################################################################
 # Postfix client configs
 declare -g -a POSTFIX_CONFIG_CLIENT
@@ -218,6 +224,7 @@ POSTFIX_FEATURE+=('dane')
 POSTFIX_FEATURE+=('verbosetls')
 POSTFIX_FEATURE+=('esmtp')
 POSTFIX_FEATURE+=('header')
+POSTFIX_FEATURE+=('alias')
 POSTFIX_FEATURE+=('rewrite')
 POSTFIX_FEATURE+=('routing')
 POSTFIX_FEATURE+=('milter')
@@ -278,6 +285,13 @@ POSTFIX_ESMTP+=('smtpd_discard_ehlo_keywords=')
 declare -g -r POSTFIX_HEADER_LABEL='Header checks'
 
 POSTFIX_HEADER+=("header_checks=regexp:$DIR_MAPS/check_header")
+
+# Virtual aliases
+declare -g -r POSTFIX_ALIAS_LABEL='Virtual aliases'
+
+POSTFIX_ALIAS_ADMIN="$DIR_MAPS/virtual_alias_admin"
+
+POSTFIX_ALIAS+=("virtual_alias_maps=hash:$POSTFIX_ALIAS_ADMIN hash:$CONFIG_POSTFIX_ALIAS")
 
 # Sender rewrite
 declare -g -r POSTFIX_REWRITE_LABEL='Sender rewrite'
@@ -953,6 +967,53 @@ toggle_setting() {
     return 1
 }
 
+# manage list of items in dialog menu
+# parameters:
+# $1 - title
+# $2 - label item
+# $3 - list function
+# $4 - add function
+# $5 - delete function
+manage_list() {
+    declare -r TAG_NONE='none'
+    declare -r LABEL_NONE='-- None --'
+    declare ITEM DIALOG_RET RET_CODE RETURN_CODE
+    declare -a LIST_ITEM
+    declare -a MENU_ITEM
+
+    while true; do
+        LIST_ITEM="$("$3")"
+
+        MENU_ITEM=()
+
+        if [ -z "$LIST_ITEM" ]; then
+            MENU_ITEM+=("$TAG_NONE" "$LABEL_NONE")
+        else
+            while read ITEM; do
+                MENU_ITEM+=("$ITEM" "$ITEM")
+            done < <(echo "$LIST_ITEM")
+        fi
+
+        exec 3>&1
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --title "$1" --ok-label 'Add' --extra-button --extra-label 'Remove' --cancel-label 'Back' --no-tags --menu '' 0 0 0 "${MENU_ITEM[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            exec 3>&1
+            DIALOG_RET="$(get_input "Add $2" "Enter $2")"
+            RETURN_CODE="$?"
+            exec 3>&-
+
+            [ "$RETURN_CODE" = 0 ] && "$4" "$DIALOG_RET"
+        elif [ "$RET_CODE" = 3 ]; then
+            [ "$DIALOG_RET" = "$TAG_NONE" ] || "$5" "$DIALOG_RET"
+        else
+            break
+        fi
+    done
+}
+
 # check crontab for entry
 # parameters:
 # $1 - crontab entry
@@ -1303,6 +1364,11 @@ postscreen_status() {
     fi
 }
 
+# checks status of Postscreen Deep
+# parameters:
+# none
+# return values:
+# stdout - Postscreen Deep status
 psdeep_status() {
     declare POSTFIX_SETTING SETTING_KEY
 
@@ -1317,16 +1383,24 @@ psdeep_status() {
     echo 'on'
 }
 
+# enable Postscreen Deep
+# parameters:
+# none
+# return values:
+# none
 psdeep_enable() {
     declare POSTFIX_SETTING
 
     for POSTFIX_SETTING in "${POSTSCREEN_PSDEEP[@]}"; do
         postconf "$POSTFIX_SETTING" 2>/dev/null
     done
-
-    return 0
 }
 
+# disable Postscreen Deep
+# parameters:
+# none
+# return values:
+# none
 psdeep_disable() {
     declare POSTFIX_SETTING SETTING_KEY
 
@@ -1334,10 +1408,13 @@ psdeep_disable() {
         SETTING_KEY="$(echo "$POSTFIX_SETTING" | awk -F= '{print $1}')"
         postconf "$SETTING_KEY=$(postconf -d "$SETTING_KEY" 2>/dev/null | sed -E "s/^$SETTING_KEY = ?//")" 2>/dev/null
     done
-
-    return 0
 }
 
+# checks status of Postscreen whitelist update
+# parameters:
+# none
+# return values:
+# stdout - Postscreen whitelist update status
 pswlupdate_status() {
     if ! postconf 'postscreen_access_list' 2>/dev/null | sed -E 's/^postscreen_access_list = ?//' | grep -q -E "^permit_mynetworks cidr:$CONFIG_POSTFIX_POSTSCREEN cidr:$POSTSCREEN_WHITELIST_SPF$" \
         || ! [ -f "$SCRIPT_PSWLUPDATE" ] || ! check_crontab "$CRONTAB_PSWLUPDATE"; then
@@ -1348,6 +1425,11 @@ pswlupdate_status() {
     echo 'on'
 }
 
+# enable Postscreen whitelist update
+# parameters:
+# none
+# return values:
+# none
 pswlupdate_enable() {
     declare -r PACKED_SCRIPT='
     H4sIAFDcjl4AA81Ze3PaSBL/35+iLVMRnINliPfqDkdOWB4JtTbmwE6yZTuUkAbQGSSdJIy9sfez
@@ -1403,6 +1485,11 @@ pswlupdate_enable() {
     postconf "postscreen_access_list=permit_mynetworks cidr:$CONFIG_POSTFIX_POSTSCREEN cidr:$POSTSCREEN_WHITELIST_SPF" 2>/dev/null
 }
 
+# disable Postscreen whitelist update
+# parameters:
+# none
+# return values:
+# none
 pswlupdate_disable() {
     del_crontab "$CRONTAB_PSWLUPDATE"
 
@@ -3703,6 +3790,44 @@ email_addresses() {
     done
 }
 
+# list admin email addresses
+# parameters:
+# none
+# return values:
+# stdout - admin email addresses
+admin_list() {
+    awk "match(\$0, /^[^ ]+ (.*)$/, a) {print a[1]}" "$POSTFIX_ALIAS_ADMIN" | xargs -n 1
+}
+
+# add admin email address
+# parameters:
+# $1 - admin email address
+# return values:
+# none
+admin_add() {
+    sed -i "s/$/ $1/" "$POSTFIX_ALIAS_ADMIN"
+    postmap "$POSTFIX_ALIAS_ADMIN"
+}
+
+# delete admin email address
+# parameters:
+# $1 - admin email address
+# return values:
+# none
+admin_delete() {
+    sed -i "s/ $1//" "$POSTFIX_ALIAS_ADMIN"
+    postmap "$POSTFIX_ALIAS_ADMIN"
+}
+
+# configure admin email addresses
+# parameters:
+# none
+# return values:
+# none
+admin_addresses() {
+    manage_list 'Admin email addresses' 'email address' 'admin_list' 'admin_add' 'admin_delete'
+}
+
 # check automatic update status
 # parameters:
 # none
@@ -4444,6 +4569,7 @@ menu_addon() {
 menu_misc() {
     declare -r TAG_EDITOR='text_editor'
     declare -r TAG_EMAIL='email_addresses'
+    declare -r TAG_ADMIN='admin_addresses'
     declare -r TAG_UPDATES='automatic_update'
     declare -r TAG_CONNECTIONS='show_connections'
     declare -r TAG_FIREWALL='show_firewall'
@@ -4451,6 +4577,7 @@ menu_misc() {
     declare -r TAG_UPDATE='show_update'
     declare -r LABEL_EDITOR='Set text editor'
     declare -r LABEL_EMAIL='Set notification addresses'
+    declare -r LABEL_ADMIN='Set admin addresses'
     declare -r LABEL_UPDATES='Automatic update'
     declare -r LABEL_CONNECTIONS='Network connections'
     declare -r LABEL_FIREWALL='Firewall rules'
@@ -4462,6 +4589,7 @@ menu_misc() {
         MENU_MISC=()
         MENU_MISC+=("$TAG_EDITOR" "$LABEL_EDITOR")
         MENU_MISC+=("$TAG_EMAIL" "$LABEL_EMAIL")
+        MENU_MISC+=("$TAG_ADMIN" "$LABEL_ADMIN")
         automatic_update_status && MENU_MISC+=("$TAG_UPDATES" "$LABEL_UPDATES (enabled)") || MENU_MISC+=("$TAG_UPDATES" "$LABEL_UPDATES (disabled)")
         MENU_MISC+=("$TAG_CONNECTIONS" "$LABEL_CONNECTIONS")
         MENU_MISC+=("$TAG_FIREWALL" "$LABEL_FIREWALL")
@@ -4688,6 +4816,16 @@ write_examples() {
         echo '#127.0.0.0/8    DISABLE' >> "$CONFIG_POSTFIX_MILTER"
         echo '#127.0.0.0/8    inet:127.0.0.1:19127' >> "$CONFIG_POSTFIX_MILTER"
     fi
+
+    if ! [ -f "$CONFIG_POSTFIX_ALIAS" ]; then
+        echo '##################################' >> "$CONFIG_POSTFIX_ALIAS"
+        echo '# Postfix virtual aliases (hash) #' >> "$CONFIG_POSTFIX_ALIAS"
+        echo '##################################' >> "$CONFIG_POSTFIX_ALIAS"
+        echo '#webmaster@example.com    admin@example.com' >> "$CONFIG_POSTFIX_ALIAS"
+        echo '#@test.com                test@example.com' >> "$CONFIG_POSTFIX_ALIAS"
+    fi
+
+    [ -f "$POSTFIX_ALIAS_ADMIN" ] || echo "admins@$(hostname -d)" > "$POSTFIX_ALIAS_ADMIN"
 }
 
 # root menu, select option in dialog menu
