@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.13.0 for Postfix
+# menu.sh V1.14.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,8 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - added Virtual aliases Postfix feature
-# - added option for managing admin email addresses
+# - changed compatability check to include Debian and SUSE
 #
 ###################################################################################################
 
@@ -3633,13 +3632,13 @@ show_update() {
     show_info 'Pending updates' "$INFO"
 }
 
-# check whether distro is Ubuntu
+# check whether distro is Ubuntu, Debian or SUSE
 # parameters:
 # none
 # return values:
 # stderr - 0 if Ubuntu else 1
-check_ubuntu() {
-    cat /proc/version | grep -q 'Ubuntu'
+check_compatible() {
+    cat /proc/version | grep -q -E '(Ubuntu|Debian|SUSE)'
 }
 
 # set setting
@@ -4849,8 +4848,8 @@ declare -r LABEL_SYNC_ALL='Sync cluster'
 declare -a MENU_MAIN
 declare DIALOG_RET RET_CODE TAG_ADDON
 
-if ! check_ubuntu; then
-    show_info 'Incompatible Linux distro' 'This tool only supports Ubuntu 18.04 or later.'
+if ! check_compatible; then
+    show_info 'Incompatible Linux distro' 'This tool only supports Ubuntu, Debian and SUSE.'
     clear
     exit 1
 fi
