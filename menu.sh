@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.14.0 for Postfix
+# menu.sh V1.15.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,9 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - changed compatability check to include Debian and SUSE
+# - added install option for oletools
+# - added Rspamd feature oletools
+# - updated log-manager script
 #
 ###################################################################################################
 
@@ -36,7 +38,7 @@ declare -g -r DIR_CONFIG_RSPAMD='/etc/rspamd'
 declare -g -r FILE_RULES="$DIR_CONFIG_RSPAMD/local.d/spamassassin.rules"
 declare -g -r DIR_LIB_RSPAMD='/var/lib/rspamd'
 declare -g -r DIR_CONFIG_FAIL2BAN='/etc/fail2ban'
-declare -g -r CRON_LOGMANAGER='/etc/cron.daily/log_manager.sh'
+declare -g -r CRON_LOGMANAGER='/etc/cron.daily/log_manager.py'
 declare -g -r SCRIPT_REBOOT='/etc/netcon-scripts/reboot-alert.sh'
 declare -g -r CRONTAB_REBOOT='@reboot /etc/netcon-scripts/reboot-alert.sh'
 declare -g -r SCRIPT_WLUPDATE='/etc/netcon-scripts/update_whitelist.sh'
@@ -47,14 +49,18 @@ declare -g -r CRON_RULES='/etc/cron.daily/update_rules.sh'
 declare -g -r CONFIG_SSH="$HOME/.ssh/config"
 declare -g -r PYZOR_PLUGIN='/usr/share/rspamd/plugins/pyzor.lua'
 declare -g -r PYZOR_DIR='/opt/pyzorsocket'
-declare -g -r PYZOR_SOCKET="$PYZOR_DIR/bin/pyzorsocket.py"
+declare -g -r PYZOR_SCRIPT="$PYZOR_DIR/bin/pyzorsocket.py"
 declare -g -r PYZOR_SERVICE='/etc/init.d/pyzorsocket'
 declare -g -r PYZOR_USER='pyzorsocket'
 declare -g -r RAZOR_PLUGIN='/usr/share/rspamd/plugins/razor.lua'
 declare -g -r RAZOR_DIR='/opt/razorsocket'
-declare -g -r RAZOR_SOCKET="$RAZOR_DIR/bin/razorsocket.py"
+declare -g -r RAZOR_SCRIPT="$RAZOR_DIR/bin/razorsocket.py"
 declare -g -r RAZOR_SERVICE='/etc/init.d/razorsocket'
 declare -g -r RAZOR_USER='razorsocket'
+declare -g -r OLETOOLS_SCRIPT='/usr/local/bin/olefy.py'
+declare -g -r OLETOOLS_SERVICE='/etc/systemd/system/olefy.service'
+declare -g -r OLETOOLS_CONFIG='/etc/olefy.conf'
+declare -g -r OLETOOLS_USER='olefy'
 declare -g -r CONFIG_UPDATE='/etc/apt/apt.conf.d/50unattended-upgrades'
 declare -g -r CONFIG_LOGWATCH='/etc/logwatch/conf/logwatch.conf'
 
@@ -74,6 +80,7 @@ INSTALL_FEATURE+=('spamassassin')
 INSTALL_FEATURE+=('rspamd')
 INSTALL_FEATURE+=('pyzor')
 INSTALL_FEATURE+=('razor')
+INSTALL_FEATURE+=('oletools')
 INSTALL_FEATURE+=('fail2ban')
 INSTALL_FEATURE+=('dkim')
 INSTALL_FEATURE+=('spf')
@@ -110,6 +117,10 @@ declare -g -r INSTALL_PYZOR_PACKAGE='pyzor'
 # Razor
 declare -g -r LABEL_INSTALL_RAZOR='Razor'
 declare -g -r INSTALL_RAZOR_PACKAGE='razor'
+
+# Oletools
+declare -g -r LABEL_INSTALL_OLETOOLS='Oletools'
+declare -g -r INSTALL_OLETOOLS_CUSTOM=1
 
 # Fail2ban
 declare -g -r LABEL_INSTALL_FAIL2BAN='Fail2ban'
@@ -491,6 +502,7 @@ declare -g -r CONFIG_RSPAMD_BAYES="$DIR_CONFIG_RSPAMD/override.d/classifier-baye
 declare -g -r CONFIG_RSPAMD_MULTIMAP="$DIR_CONFIG_RSPAMD/local.d/multimap.conf"
 declare -g -r CONFIG_RSPAMD_GROUPS="$DIR_CONFIG_RSPAMD/local.d/groups.conf"
 declare -g -r CONFIG_RSPAMD_SIGNATURES="$DIR_CONFIG_RSPAMD/local.d/signatures_group.conf"
+declare -g -r CONFIG_RSPAMD_EXTERNAL="$DIR_CONFIG_RSPAMD/local.d/external_services.conf"
 
 declare -g -a RSPAMD_CONFIG
 
@@ -538,6 +550,7 @@ RSPAMD_FEATURE+=('reputation')
 RSPAMD_FEATURE+=('phishing')
 RSPAMD_FEATURE+=('pyzor')
 RSPAMD_FEATURE+=('razor')
+RSPAMD_FEATURE+=('oletools')
 
 for FEATURE in "${RSPAMD_FEATURE[@]}"; do
     declare -g -a RSPAMD_${FEATURE^^}
@@ -605,6 +618,11 @@ declare -g -r RSPAMD_PYZOR_CUSTOM=1
 declare -g -r RSPAMD_RAZOR_LABEL='Razor'
 declare -g -r RSPAMD_RAZOR_CHECK=1
 declare -g -r RSPAMD_RAZOR_CUSTOM=1
+
+# Oletools
+declare -g -r RSPAMD_OLETOOLS_LABEL='Oletools'
+declare -g -r RSPAMD_OLETOOLS_CHECK=1
+declare -g -r RSPAMD_OLETOOLS_CUSTOM=1
 
 ###################################################################################################
 # Fail2ban configs
@@ -1052,8 +1070,7 @@ del_crontab() {
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_postfix() {
-    which postfix &>/dev/null
-    [ "$?" = 0 ] && return 0 || return 1
+    which postfix &>/dev/null && return 0 || return 1
 }
 
 # check whether local DNS resolver is installed
@@ -1062,8 +1079,7 @@ check_installed_postfix() {
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_resolver() {
-    which named &>/dev/null
-    [ "$?" = 0 ] && return 0 || return 1
+    which named &>/dev/null && return 0 || return 1
 }
 
 # check whether Postfwd3 is installed
@@ -1072,8 +1088,7 @@ check_installed_resolver() {
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_postfwd() {
-    which /usr/local/postfwd/sbin/postfwd &>/dev/null
-    [ "$?" = 0 ] && return 0 || return 1
+    which /usr/local/postfwd/sbin/postfwd &>/dev/null && return 0 || return 1
 }
 
 # check whether Spamassassin is installed
@@ -1082,8 +1097,7 @@ check_installed_postfwd() {
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_spamassassin() {
-    which spamassassin &>/dev/null
-    [ "$?" = 0 ] && return 0 || return 1
+    which spamassassin &>/dev/null && return 0 || return 1
 }
 
 # check whether Rspamd is installed
@@ -1092,8 +1106,7 @@ check_installed_spamassassin() {
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_rspamd() {
-    which rspamd &>/dev/null
-    [ "$?" = 0 ] && return 0 || return 1
+    which rspamd &>/dev/null && return 0 || return 1
 }
 
 # check whether Pyzor is installed
@@ -1102,8 +1115,7 @@ check_installed_rspamd() {
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_pyzor() {
-    which pyzor &>/dev/null
-    [ "$?" = 0 ] && return 0 || return 1
+    which pyzor &>/dev/null && return 0 || return 1
 }
 
 # check whether Razor is installed
@@ -1112,8 +1124,16 @@ check_installed_pyzor() {
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_razor() {
-    which razor-check &>/dev/null
-    [ "$?" = 0 ] && return 0 || return 1
+    which razor-check &>/dev/null && return 0 || return 1
+}
+
+# check whether oletools is installed
+# parameters:
+# none
+# return values:
+# error code - 0 for installed, 1 for not installed
+check_installed_oletools() {
+    which olevba3 &>/dev/null && return 0 || return 1
 }
 
 # check whether Fail2ban is installed
@@ -1122,8 +1142,7 @@ check_installed_razor() {
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_fail2ban() {
-    which fail2ban-client &>/dev/null
-    [ "$?" = 0 ] && return 0 || return 1
+    which fail2ban-client &>/dev/null && return 0 || return 1
 }
 
 # check whether OpenDKIM is installed
@@ -1132,8 +1151,7 @@ check_installed_fail2ban() {
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_dkim() {
-    which opendkim &>/dev/null
-    [ "$?" = 0 ] && return 0 || return 1
+    which opendkim &>/dev/null && return 0 || return 1
 }
 
 # check whether SPF-check is installed
@@ -1142,8 +1160,7 @@ check_installed_dkim() {
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_spf() {
-    which policyd-spf &>/dev/null
-    [ "$?" = 0 ] && return 0 || return 1
+    which policyd-spf &>/dev/null && return 0 || return 1
 }
 
 # check whether Logwatch is installed
@@ -1152,8 +1169,7 @@ check_installed_spf() {
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_logwatch() {
-    which logwatch &>/dev/null
-    [ "$?" = 0 ] && return 0 || return 1
+    which logwatch &>/dev/null && return 0 || return 1
 }
 
 # check whether log-manager is installed
@@ -1197,8 +1213,7 @@ check_installed_peer() {
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_daemonize() {
-    which daemonize &>/dev/null
-    [ "$?" = 0 ] && return 0 || return 1
+    which daemonize &>/dev/null && return 0 || return 1
 }
 
 # check whether any Postfix plugin is available
@@ -1226,6 +1241,24 @@ check_version_postfwd() {
 # stdout - version number of update
 check_update_postfwd() {
     wget "$INSTALL_POSTFWD_LINK" -O - 2>/dev/null | grep '^our $VERSION' | awk 'match($0, /= "([^"]+)";/, a) {print a[1]}'
+}
+
+# check oletools version
+# parameters:
+# none
+# return values:
+# stdout - version number
+check_version_oletools() {
+    olevba3 | head -1 | awk '{print $2}'
+}
+
+# check for update of oletools
+# parameters:
+# none
+# return values:
+# stdout - version number of update
+check_update_oletools() {
+    pip3 list --outdated --format=columns 2>/dev/null | grep '^oletools\s' | awk '{print $3}'
 }
 
 ###################################################################################################
@@ -2707,7 +2740,7 @@ pyzor_status() {
         && [ -f "$CONFIG_RSPAMD_SIGNATURES" ]                                                                                                                                                                                                                                                                               \
         && [ "$(sed 'H;/^symbols = {$/h;/^}$/!d;x;/\n\t"PYZOR" {/!d' "$CONFIG_RSPAMD_SIGNATURES")" = 'symbols = {'$'\n\t''"PYZOR" {'$'\n\t\t''weight = 2.5;'$'\n\t\t''description = "check message signatures against the Pyzor collaborative filtering network";'$'\n\t''}'$'\n''}' ]                                      \
         && [ -f "$PYZOR_PLUGIN" ]                                                                                                                                                                                                                                                                                           \
-        && [ -f "$PYZOR_SOCKET" ]                                                                                                                                                                                                                                                                                           \
+        && [ -f "$PYZOR_SCRIPT" ]                                                                                                                                                                                                                                                                                           \
         && [ -f "$PYZOR_SERVICE" ]; then
         return 0
     else
@@ -2770,9 +2803,9 @@ pyzor_enable() {
     /4eG4RugcRJv43zOPvVKIEAJkgAhIN7SYAvs+DtQSB2PgbHKft4d0S3XMfldzXJ0693poh1iWPzp
     cOwDCMDk1CgjtL7l6HitsXwhuQIHmXMjWuA8TjPnQRPO80AngYq/7vjOR0EFAAA=
     '
-    printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$PYZOR_SOCKET"
-    chown "$PYZOR_USER:$PYZOR_USER" "$PYZOR_SOCKET"
-    chmod 0700 "$PYZOR_SOCKET"
+    printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$PYZOR_SCRIPT"
+    chown "$PYZOR_USER:$PYZOR_USER" "$PYZOR_SCRIPT"
+    chmod 0700 "$PYZOR_SCRIPT"
 
     PACKED_SCRIPT='
     H4sIAJqvOl4AA5VTYW/TMBD97l9xJNFGkbI0m7JBpwoBy6aK0k5phwQIIdd1G6upHWwH6Nb9dxy3
@@ -2827,7 +2860,7 @@ razor_status() {
         && [ -f "$CONFIG_RSPAMD_SIGNATURES" ]                                                                                                                                                                                                                                                                               \
         && [ "$(sed 'H;/^symbols = {$/h;/^}$/!d;x;/\n\t"RAZOR" {/!d' "$CONFIG_RSPAMD_SIGNATURES")" = 'symbols = {'$'\n\t''"RAZOR" {'$'\n\t\t''weight = 2.5;'$'\n\t\t''description = "check message signatures against the Razor collaborative filtering network";'$'\n\t''}'$'\n''}' ]                                      \
         && [ -f "$RAZOR_PLUGIN" ]                                                                                                                                                                                                                                                                                           \
-        && [ -f "$RAZOR_SOCKET" ]                                                                                                                                                                                                                                                                                           \
+        && [ -f "$RAZOR_SCRIPT" ]                                                                                                                                                                                                                                                                                           \
         && [ -f "$RAZOR_SERVICE" ]; then
         return 0
     else
@@ -2886,9 +2919,9 @@ razor_enable() {
     Vd+LNwC4QVwhIf5lwRbQcexIhI7HgDgQ5ewDuqU+9n4HwyW6ebvbc4cxRRxuvDYWQmDvVEuN0j3m
     aPmo/AxFyrkWDXAexwvngRPO04TpCcr+AZfHVnq7BQAA
     '
-    printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$RAZOR_SOCKET"
-    chown "$RAZOR_USER:$RAZOR_USER" "$RAZOR_SOCKET"
-    chmod 0700 "$RAZOR_SOCKET"
+    printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$RAZOR_SCRIPT"
+    chown "$RAZOR_USER:$RAZOR_USER" "$RAZOR_SCRIPT"
+    chmod 0700 "$RAZOR_SCRIPT"
 
     PACKED_SCRIPT='
     H4sIANWvOl4AA5VT72/aMBD97r/ilkTtmJSGMNEVEJq6Na1QGVQB+qHTNBljiEWwU9vZWqD/+xIX
@@ -2926,6 +2959,61 @@ razor_disable() {
     rm -rf "$RAZOR_PLUGIN" "$RAZOR_DIR" "$RAZOR_SERVICE"
     userdel -r "$RAZOR_USER" &>/dev/null
     groupdel "$RAZOR_USER" &>/dev/null
+
+    systemctl daemon-reload
+}
+
+# check oletools status
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 for disabled
+oletools_status() {
+    if [ -f "$CONFIG_RSPAMD_EXTERNAL" ]                                                                                                                                                                                            \
+        && [ "$(sed -n '/^oletools {$/,/^}$/p' "$CONFIG_RSPAMD_EXTERNAL")" = 'oletools {'$'\n\t''log_clean = true;'$'\n\t''servers = "127.0.0.1:10050";'$'\n\t''cache_expire = 86400;'$'\n\t''scan_mime_parts = true;'$'\n''}' ]   \
+        && [ -f "$OLETOOLS_SCRIPT" ]                                                                                                                                                                                               \
+        && [ -f "$OLETOOLS_CONFIG" ]                                                                                                                                                                                               \
+        && [ -f "$OLETOOLS_SERVICE" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# enable oletools
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 for disabled
+oletools_enable() {
+    if ! [ -f "$CONFIG_RSPAMD_EXTERNAL" ] || [ "$(sed -n '/^oletools {$/,/^}$/p' "$CONFIG_RSPAMD_EXTERNAL")" != 'oletools {'$'\n\t''log_clean = true;'$'\n\t''servers = "127.0.0.1:10050";'$'\n\t''cache_expire = 86400;'$'\n\t''scan_mime_parts = true;'$'\n''}' ]; then
+        echo $'\n''oletools {'$'\n\t''log_clean = true;'$'\n\t''servers = "127.0.0.1:10050";'$'\n\t''cache_expire = 86400;'$'\n\t''scan_mime_parts = true;'$'\n''}' >> "$CONFIG_RSPAMD_EXTERNAL"
+    fi
+
+    groupadd "$OLETOOLS_USER"
+    useradd -g "$OLETOOLS_USER" "$OLETOOLS_USER"
+
+    wget https://raw.githubusercontent.com/HeinleinSupport/olefy/master/olefy.py -O "$OLETOOLS_SCRIPT" 2>/dev/null
+    wget https://raw.githubusercontent.com/HeinleinSupport/olefy/master/olefy.conf -O "$OLETOOLS_CONFIG" 2>/dev/null
+    wget https://raw.githubusercontent.com/HeinleinSupport/olefy/master/olefy.service -O "$OLETOOLS_SERVICE" 2>/dev/null
+
+    systemctl daemon-reload
+    systemctl start olefy.service
+}
+
+# disable oletools
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 for disabled
+oletools_disable() {
+    sed -i '/^oletools {$/,/^}$/d' "$CONFIG_RSPAMD_EXTERNAL"
+
+    systemctl stop olefy.service
+
+    rm -rf "$OLETOOLS_SCRIPT" "$OLETOOLS_CONFIG" "$OLETOOLS_SERVICE"
+    userdel -r "$OLETOOLS_USER" &>/dev/null
+    groupdel "$OLETOOLS_USER" &>/dev/null
 
     systemctl daemon-reload
 }
@@ -4005,6 +4093,16 @@ install_razor() {
     apt install -y razor &>/dev/null
 }
 
+# install oletools
+# parameters:
+# none
+# return values:
+# none
+install_oletools() {
+    show_wait
+    pip3 install oletools python-magic &>/dev/null
+}
+
 # install Fail2ban
 # parameters:
 # none
@@ -4052,37 +4150,50 @@ install_logwatch() {
 # none
 install_logmanager() {
     declare -r PACKED_SCRIPT='
-    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
-    8FPVbMphih/8mzth42/GjHjpuRAAAA==
+    H4sIALeVu14AA91ZbW/bOBL+rl/Bcy6I1HUUJ+32Djm4uGzitgGadOG0u9deD4Ji0TY3siSQVF23
+    6H/fmaEoUbbsZNtb4HAEgogvMxzOPPNCeu8vR6WSR7ciO+LZR1as9DzPHnveHkvzWbSIs3jGZVis
+    2C/H4XE48PZg5jwvVlLM5pr5k4CdDE4G7Jrr8zxjbzPNZcbnC56pWy5jXWYz9mJx+7LP5loX6vTo
+    aLlchhnXkzw7hD9Vplpks3CSL4DxWQm7y1N2FcsJuxBc3imeMX8RJtX3PzspA8/r9XreRSzSFZO5
+    jrUAWeIsYcBnLj7GKZvmEg/EpiLlKvS8cZkxPReKqYkUhWaxYjFLiMFEAvFv+S2seg5UcZrWlEzz
+    RZHGmiuW8KnIeMJExqRaKVwBQk3FjCVC8onO5YpdXI6j8c27m1evXwBXDnQs48uGGwql8yReMV9M
+    vSwHMVJYlqxYITmcVgd0CMU1U6tFKrI7djAppYSZEJgcADETOmRndEreHJDlacKB9zzO2MXZu5sI
+    JUBWCU+55p6e8wX1J3M+uWM59KUicZT4DEKCJPzThPMEFMyuzv4VPb98Nbq5fD8K2QVxqBTbsdPZ
+    +Pzl5S+jhrtHLPNptUvIzmnPlxcXrFQALlZwOYET4SesSvhHMQG+CjSIu8OZVIdAQP725uzFKCTL
+    e2JR5BLWZOXCfufKm8p8Af/DItZzVg3Htwq7fTRTFi94nwm1yMtMWzo0MSrR9iU3fJAqFbeWz8/Q
+    NRNaLLgdVVpOsW+Ji2ViFiVgfHch9u2iz6K1oZqXWqSGbBKnPEtiackWeabnMs5mzeqV8jwXaEPW
+    OwInOapQGSY9mrZ2genKdqA2WB+dvx2PR9dvcMLBFkzWwBmyxwOvZVwYefoj2yNkAgYHBJ1EqPg2
+    RQNZcHieix2gOh6cPAEy8Jmrn1agAM81JcwTU5jd97xJGivFxlyXMjvPE+6jbcPLTI/gf3DqMWho
+    evxvVoH/JRycFkcG7JCpcgJAUtQ/hv4ylhlIR/0T6HMpc9nic/P2/Hx0cwOCDKj/69n4+vIaFXBM
+    /dF4/HoMvRPPA/e3PukjMiK0YJ9AEuFgn+UfuVxKofnweZwqvibyuQkHMTK5zVMxYUhVSX+qVwVn
+    NdtThNX6BC5fn6i3PGW3eZ62NhTThi7kn4TSyjfhpRkWKrJnMlMNQ+KBbc9GMhuRyowCAEc4xhD0
+    0KmIGNwdYiOnvtBezQEcj7YDRTZbFzEir1m0nGOAfCNLZ2tsRKEXBRCjB/rWW8PFHX76wHwISvHt
+    JkEQeC0GWq7aHF2uYXWoSOeNVdcYYLsFFdy1RjE6QRp5DutHpNwRoqtrJ0BkPbohDAQrySHDTLiP
+    p7ByBX1Wd82paiqzcZuLtTWeyLXpjoOXmVnSPquMheJsRFtASvV753GGsbiyasW4Z6ThgPJmh8a0
+    W3SKHgQpNIko+ha5yDTNrznKc1jCaAmjNU2OMPnbxHaTLyAd59mGDzleInGw6ds9iMfQpoZa8xY6
+    Bot47ipVOCvaBwYmVVrZYCJNjMIhc/ZFLDJrkio0ATnFCkMBwTXCjD7ELz+oxxp91VP2FFh8RbZG
+    gVnJsTwqQHxfHtjxD374CKSD/YY9/8PND8Hh/oe/vhudjffx4+r19ZuX9AURf59SQfjoQ3BQbQLu
+    n6cp1DdNFYPHVSbf55A/VJFnlKYdo5kgjEmCEACeDoEC4jy5sJO8ghBijQQVuli1aCYqxDPuug7m
+    TrdeCjCJQ5sXPMPIpkjwyNRrm2TYALGoQGddiJUZDq87Sb0bwQRXdLPEtoj1ZG4MQ5/+utH6xGDL
+    DpU2iHL7HtiM9xF4SMdEEs5kXhb+8XpIXG8V8MI4SXzLKLiXooElEXa5NjHasflupbsru6IenVvi
+    Xk2YipP16pwge/Dl60EvBDyCXvwGIF2yVX7bFCIhVQFmIVZxkangh9QJqWMRgjcoVU6n4hN6alUa
+    +r3D/XeH+4vD/YS8q+9wCXGBLgvEd+NwVC+D3UsFifbAHOeAmRxOa1rgx1VRdeYhFqDhjOtiCV7q
+    98ywjddrOmwTXudZFYfs1Qn8tUJGQ4O+X+EMEYPddp6vp9YTPM5WdaKJmgS53wArhQ0KVbXpGAWU
+    4NDVZcxG9kPjuwshaKwFlTXA2BsUBXFEh2VhbnI1VhymfwQsNWxbKXLDdB26gboGJTfaU0MsiL7F
+    E6qarbmatjzgG0+1luvJ1BuGrBHyg+MObZOigJbFFptur9qQRuclhNLv0EudyzYDw5aQda9O9rZ5
+    LJsh0AQUMssM7sNzUWBJYyVw9eI45AO0AaXjZA48m8IRRe+7XMJiGZUi2RibieSblDfHi6g5B57h
+    v6c8qher22gXqJx7a7Cjmm5d0IBBv8XYvaK1/arr+J24qV9lMGJgnNwEUXvHbVp5iItRnWC8zK3r
+    el++Hvofki9fnnz9Gpivk9aXqeEqcaw7ugLs2Qv7PQ9IkKAUvlS1H3qesUHgvC39o8pXpAn79ANX
+    wer5p950sxi0Vu4oAbE9qAzEtrXGIgQ4PFAXHejcXWF1+p5tlMmrQAifPkJmrfTqs/XBk67Bx0HQ
+    XXJtc03bKpy+AiEIlXOodkX2MU5FQi9VSseL4oG1j233onNNfb5TFx3WSglCAtCzGlDbD9GBsQfU
+    u+1ywibQrky0XouFn0VhCzFKKE4Zdk+xvBMPttFFpHrmC9+LAp8JmjhtU2+f9WKQAj0brlEKLtzD
+    muby5+jV+6uzPj5H50tg8fSJCVp4m/k8vV8EbJ+nIYU7x+wdDrGLw33os61CIT2CMLgOVC+5BpI6
+    rwPOlkK83zLofSbA9ocgShI2x67fPjpPvFGyuY0C3NBlBv4FN3L4F9Hc0RE7Hjz5+49/e7rzSkdr
+    n7We2u8BvFHwr+bh4JS1/N2G3S9f2dVPnerFFfeptXmUQKBtpqLG3R6QjsjDdieh5IG/LGAU+b4s
+    U18L/qxMU23wJ2ebFY8l7N6RZLa/P+DvBx00J7vAQGHRCa6Y2XDvvmHXd36VcMeDfx//57ty2JkT
+    JP5X8pgNSa1cViFzx4H+v4LNhmH+vIBjnz+anwun1W+yHT8Umtq1frSg16fIvJRWjxfNg1RzYl/n
+    Ok7pUgRXoyjAtxr6CS5MhLqLaFff4eWcYp4kZh5okJw9AgMM0A7Es3XLbdY+a/2C2XnNqFV9YZ66
+    aXvgH+tG6Y1KSPP7td4dWfvNtuva79I2iFkNN1JtOk31s1jHo//m2uonNc8D1lFEgT9iwyHrRRE+
+    gEdRz1DDZRSv/hiV8Fk88H4H3verbZggAAA=
     '
 
     printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$CRON_LOGMANAGER"
