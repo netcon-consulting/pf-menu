@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.16.0 for Postfix
+# menu.sh V1.17.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,9 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - updated log-manager script
+# - install dependencies on startup
+# - fix installation options for Debian-10
+# - install sample config for postfwd
 #
 ###################################################################################################
 
@@ -65,6 +67,17 @@ declare -g -r CONFIG_LOGWATCH='/etc/logwatch/conf/logwatch.conf'
 ###################################################################################################
 # Default settings
 declare -g -r DEFAULT_EDITOR='vim'
+
+###################################################################################################
+# Dependencies
+declare -g -a DEPENDENCY
+
+DEPENDENCY=()
+DEPENDENCY+=('dialog' 'dialog')
+DEPENDENCY+=('gawk' 'gawk')
+DEPENDENCY+=('gcc' 'gcc')
+DEPENDENCY+=('pip3' 'python3-pip python3-setuptools')
+DEPENDENCY+=('wget' 'wget')
 
 ###################################################################################################
 # Install features
@@ -3985,6 +3998,11 @@ automatic_update() {
 install_postfix() {
     show_wait
     apt install -y postfix &>/dev/null
+
+    postconf 'inet_protocols=ipv4'
+    postconf 'mynetworks=127.0.0.0/8'
+
+    rm -f /etc/postfix/makedefs.out &>/dev/null
 }
 
 # install local DNS resolver
@@ -4034,6 +4052,7 @@ install_postfwd() {
     wget "$INSTALL_POSTFWD_LINK" -O - 2>/dev/null > /usr/local/postfwd/sbin/postfwd
     chmod +x /usr/local/postfwd/sbin/postfwd
     wget https://raw.githubusercontent.com/postfwd/postfwd/master/bin/postfwd-script.sh -O - 2>/dev/null | sed "s/nobody/$POSTFWD_USER/" > /etc/init.d/postfwd
+    wget https://raw.githubusercontent.com/postfwd/postfwd/master/etc/postfwd.cf.sample -O - 2>/dev/null > /etc/postfwd.cf
     chmod +x /etc/init.d/postfwd
 
     apt install -y libnet-server-perl libnet-dns-perl &>/dev/null
@@ -4050,7 +4069,7 @@ install_postfwd() {
 # none
 install_spamassassin() {
     show_wait
-    apt install -y geoip-bin geoip-database geoip-database-extra cpanminus libbsd-resource-perl libdbi-perl libencode-detect-perl libgeo-ip-perl liblwp-useragent-determined-perl libmail-dkim-perl libnet-cidr-perl libdigest-sha-perl libnet-patricia-perl monit postfix postfix-pcre sa-compile spamassassin spamc spf-tools-perl redis-server &>/dev/null
+    apt install -y geoip-bin geoip-database geoip-database-extra cpanminus libbsd-resource-perl libdbi-perl libencode-detect-perl libgeo-ip-perl liblwp-useragent-determined-perl libmail-dkim-perl libnet-cidr-perl libdigest-sha-perl libnet-patricia-perl postfix postfix-pcre sa-compile spamassassin spamc spf-tools-perl redis-server &>/dev/null
 }
 
 # install Rspamd
@@ -4062,13 +4081,13 @@ install_rspamd() {
     declare CODENAME
 
     show_wait
-    apt-get install -y lsb-release wget &>/dev/null
+    apt install -y lsb-release &>/dev/null
     CODENAME="$(lsb_release -c -s)"
-    wget -O- https://rspamd.com/apt-stable/gpg.key 2>/dev/null | apt-key add - &>/dev/null
+    wget https://rspamd.com/apt-stable/gpg.key -O - 2>/dev/null | apt-key add - &>/dev/null
     echo "deb [arch=amd64] http://rspamd.com/apt-stable/ $CODENAME main" > /etc/apt/sources.list.d/rspamd.list
     echo "deb-src [arch=amd64] http://rspamd.com/apt-stable/ $CODENAME main" >> /etc/apt/sources.list.d/rspamd.list
-    apt-get update &>/dev/null
-    apt-get --no-install-recommends install -y rspamd &>/dev/null
+    apt update &>/dev/null
+    apt install -y rspamd &>/dev/null
 }
 
 # install Pyzor
@@ -4108,6 +4127,7 @@ install_oletools() {
 # none
 install_fail2ban() {
     show_wait
+    rm -f /etc/apt/preferences.d/apt-listbugs &>/dev/null
     apt install -y fail2ban &>/dev/null
 }
 
@@ -4936,6 +4956,42 @@ write_examples() {
     [ -f "$POSTFIX_ALIAS_ADMIN" ] || echo "admins@$(hostname -d)" > "$POSTFIX_ALIAS_ADMIN"
 }
 
+# install dependency
+# parameters:
+# $1 - binary to check
+# $2 - list of packages to install
+# return values:
+# none
+install_dependency() {
+    which "$1" &>/dev/null || apt install -y "$2" &>/dev/null
+}
+
+# perform basic setup
+# parameters:
+# none
+# return values:
+# none
+base_setup() {
+    clear
+    echo 'Performing base setup. This may take a while...'
+
+    for COUNTER in $(seq 0 "$(expr "${#DEPENDENCY[@]}" / 2 - 1)"); do
+        install_dependency "${DEPENDENCY[$(expr "$COUNTER" \* 2)]}" "${DEPENDENCY[$(expr "$COUNTER" \* 2 + 1)]}"
+    done
+
+    # for Debian-10 installing pip3 does NOT install python3-setuptools
+    [ -z "$(pip3 list | grep '^setuptools')" ] && apt install -y python3-setuptools &>/dev/null
+
+    if which postfix &>/dev/null; then
+        postconf 'inet_protocols=ipv4'
+        postconf 'mynetworks=127.0.0.0/8'
+
+        rm -f /etc/postfix/makedefs.out &>/dev/null
+
+        postfix_restart
+    fi
+}
+
 # root menu, select option in dialog menu
 # parameters:
 # none
@@ -4965,10 +5021,12 @@ fi
 
 if ! [ -f "$CONFIG_BASH" ] || ! grep -q "alias menu=$HOME/menu.sh" "$CONFIG_BASH"; then
     echo "alias menu=$HOME/menu.sh" >> "$CONFIG_BASH"
+    source "$CONFIG_BASH"
 fi
 
 check_update
 write_examples
+base_setup
 
 while true; do
     MENU_MAIN=()
