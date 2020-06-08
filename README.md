@@ -1,4 +1,4 @@
-NetCon Postfix Made Easy V1.17.0
+NetCon Postfix Made Easy V1.18.0
 ================================
 
 This tool will help with various setup tasks for mailservers supporting the configuration of Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.

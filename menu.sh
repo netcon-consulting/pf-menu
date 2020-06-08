@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.17.0 for Postfix
+# menu.sh V1.18.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,9 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - install dependencies on startup
-# - fix installation options for Debian-10
-# - install sample config for postfwd
+# - bugfix
 #
 ###################################################################################################
 
@@ -4963,7 +4961,7 @@ write_examples() {
 # return values:
 # none
 install_dependency() {
-    which "$1" &>/dev/null || apt install -y "$2" &>/dev/null
+    which "$1" &>/dev/null || apt install -y $2 &>/dev/null
 }
 
 # perform basic setup
@@ -4980,15 +4978,17 @@ base_setup() {
     done
 
     # for Debian-10 installing pip3 does NOT install python3-setuptools
-    [ -z "$(pip3 list | grep '^setuptools')" ] && apt install -y python3-setuptools &>/dev/null
+    [ -z "$(pip3 list 2>/dev/null | grep '^setuptools')" ] && apt install -y python3-setuptools &>/dev/null
 
     if which postfix &>/dev/null; then
-        postconf 'inet_protocols=ipv4'
-        postconf 'mynetworks=127.0.0.0/8'
+        [ -f /etc/postfix/makedefs.out ] && rm -f /etc/postfix/makedefs.out &>/dev/null
 
-        rm -f /etc/postfix/makedefs.out &>/dev/null
+        if [ "$(postconf inet_protocols)" != 'inet_protocols = ipv4' ] || [ "$(postconf mynetworks)" != 'mynetworks = 127.0.0.0/8' ]; then
+            postconf 'inet_protocols=ipv4'
+            postconf 'mynetworks=127.0.0.0/8'
 
-        postfix_restart
+            postfix_restart
+        fi
     fi
 }
 
