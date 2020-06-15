@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.19.0 for Postfix
+# menu.sh V1.20.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,8 +16,6 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - added install option for Clam AV
-# - added Rspamd feature Clam AV
 # - bugfixes
 #
 ###################################################################################################
@@ -4071,7 +4069,7 @@ automatic_update() {
 # none
 install_postfix() {
     show_wait
-    apt install -y postfix &>/dev/null
+    DEBIAN_FRONTEND=noninteractive apt-get -yq install postfix &>/dev/null
 
     postconf 'inet_protocols=ipv4'
     postconf 'mynetworks=127.0.0.0/8'
@@ -4163,9 +4161,9 @@ install_rspamd() {
     apt update &>/dev/null
     apt install -y redis-server rspamd &>/dev/null
     echo 'bind_socket = "127.0.0.1:11333";' > "$CONFIG_RSPAMD_NORMAL"
-    echo 'bind_socket = "127.0.0.1:11333";'$'\n''secure_ip = "127.0.0.1";' > "$CONFIG_RSPAMD_CONTROLLER"
-    echo 'bind_socket = "127.0.0.1:11333";'$'\n''upstream {'$'\n\t''local {'$'\n\t\t''hosts = "127.0.0.1";'$'\n\t\t''default = true;'$'\n\t''}'$'\n''}' > "$CONFIG_RSPAMD_PROXY"
-    echo 'bind_socket = "127.0.0.1:11333";'$'\n''allow_update [ "127.0.0.1" ]' > "$CONFIG_RSPAMD_FUZZY"
+    echo 'bind_socket = "127.0.0.1:11334";'$'\n''secure_ip = "127.0.0.1";' > "$CONFIG_RSPAMD_CONTROLLER"
+    echo 'bind_socket = "127.0.0.1:11332";'$'\n''upstream {'$'\n\t''local {'$'\n\t\t''hosts = "127.0.0.1";'$'\n\t\t''default = true;'$'\n\t''}'$'\n''}' > "$CONFIG_RSPAMD_PROXY"
+    echo 'bind_socket = "127.0.0.1:11335";'$'\n''allow_update [ "127.0.0.1" ]' > "$CONFIG_RSPAMD_FUZZY"
     rspamd_restart
 }
 
