@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.18.0 for Postfix
+# menu.sh V1.19.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,9 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - bugfix
+# - added install option for Clam AV
+# - added Rspamd feature Clam AV
+# - bugfixes
 #
 ###################################################################################################
 
@@ -74,7 +76,7 @@ DEPENDENCY=()
 DEPENDENCY+=('dialog' 'dialog')
 DEPENDENCY+=('gawk' 'gawk')
 DEPENDENCY+=('gcc' 'gcc')
-DEPENDENCY+=('pip3' 'python3-pip python3-setuptools')
+DEPENDENCY+=('pip3' 'python3-pip python3-setuptools python3-wheel')
 DEPENDENCY+=('wget' 'wget')
 
 ###################################################################################################
@@ -90,6 +92,7 @@ INSTALL_FEATURE+=('rspamd')
 INSTALL_FEATURE+=('pyzor')
 INSTALL_FEATURE+=('razor')
 INSTALL_FEATURE+=('oletools')
+INSTALL_FEATURE+=('clamav')
 INSTALL_FEATURE+=('fail2ban')
 INSTALL_FEATURE+=('dkim')
 INSTALL_FEATURE+=('spf')
@@ -130,6 +133,10 @@ declare -g -r INSTALL_RAZOR_PACKAGE='razor'
 # Oletools
 declare -g -r LABEL_INSTALL_OLETOOLS='Oletools'
 declare -g -r INSTALL_OLETOOLS_CUSTOM=1
+
+# Clam AV
+declare -g -r LABEL_INSTALL_CLAMAV='Clam AV'
+declare -g -r INSTALL_CLAMAV_CUSTOM=1
 
 # Fail2ban
 declare -g -r LABEL_INSTALL_FAIL2BAN='Fail2ban'
@@ -499,12 +506,9 @@ declare -g -r CONFIG_RSPAMD_LOCAL="$DIR_CONFIG_RSPAMD/rspamd.conf.local"
 declare -g -r CONFIG_RSPAMD_GREYLIST="$DIR_CONFIG_RSPAMD/local.d/greylist.conf"
 declare -g -r CONFIG_RSPAMD_OPTIONS="$DIR_CONFIG_RSPAMD/local.d/options.inc"
 declare -g -r CONFIG_RSPAMD_HISTORY="$DIR_CONFIG_RSPAMD/local.d/history_redis.conf"
-declare -g -r CONFIG_RSPAMD_REDIS="$DIR_CONFIG_RSPAMD/local.d/redis.conf"
 declare -g -r CONFIG_RSPAMD_SARULES="$DIR_CONFIG_RSPAMD/local.d/spamassassin.conf"
-declare -g -r CONFIG_RSPAMD_CONTROLLER="$DIR_CONFIG_RSPAMD/local.d/worker-controller.inc"
 declare -g -r CONFIG_RSPAMD_REPUTATION="$DIR_CONFIG_RSPAMD/local.d/url_reputation.conf"
 declare -g -r CONFIG_RSPAMD_PHISHING="$DIR_CONFIG_RSPAMD/local.d/phishing.conf"
-declare -g -r CONFIG_RSPAMD_ELASTIC="$DIR_CONFIG_RSPAMD/local.d/elastic.conf"
 declare -g -r CONFIG_RSPAMD_ACTIONS="$DIR_CONFIG_RSPAMD/override.d/actions.conf"
 declare -g -r CONFIG_RSPAMD_HEADERS="$DIR_CONFIG_RSPAMD/override.d/milter_headers.conf"
 declare -g -r CONFIG_RSPAMD_BAYES="$DIR_CONFIG_RSPAMD/override.d/classifier-bayes.conf"
@@ -512,6 +516,11 @@ declare -g -r CONFIG_RSPAMD_MULTIMAP="$DIR_CONFIG_RSPAMD/local.d/multimap.conf"
 declare -g -r CONFIG_RSPAMD_GROUPS="$DIR_CONFIG_RSPAMD/local.d/groups.conf"
 declare -g -r CONFIG_RSPAMD_SIGNATURES="$DIR_CONFIG_RSPAMD/local.d/signatures_group.conf"
 declare -g -r CONFIG_RSPAMD_EXTERNAL="$DIR_CONFIG_RSPAMD/local.d/external_services.conf"
+declare -g -r CONFIG_RSPAMD_NORMAL="$DIR_CONFIG_RSPAMD/override.d/worker-normal.inc"
+declare -g -r CONFIG_RSPAMD_CONTROLLER="$DIR_CONFIG_RSPAMD/override.d/worker-controller.inc"
+declare -g -r CONFIG_RSPAMD_PROXY="$DIR_CONFIG_RSPAMD/override.d/worker-proxy.inc"
+declare -g -r CONFIG_RSPAMD_FUZZY="$DIR_CONFIG_RSPAMD/override.d/worker-fuzzy.inc"
+declare -g -r CONFIG_RSPAMD_ANTIVIRUS="$DIR_CONFIG_RSPAMD/local.d/antivirus.conf"
 
 declare -g -a RSPAMD_CONFIG
 
@@ -560,6 +569,7 @@ RSPAMD_FEATURE+=('phishing')
 RSPAMD_FEATURE+=('pyzor')
 RSPAMD_FEATURE+=('razor')
 RSPAMD_FEATURE+=('oletools')
+RSPAMD_FEATURE+=('clamav')
 
 for FEATURE in "${RSPAMD_FEATURE[@]}"; do
     declare -g -a RSPAMD_${FEATURE^^}
@@ -632,6 +642,11 @@ declare -g -r RSPAMD_RAZOR_CUSTOM=1
 declare -g -r RSPAMD_OLETOOLS_LABEL='Oletools'
 declare -g -r RSPAMD_OLETOOLS_CHECK=1
 declare -g -r RSPAMD_OLETOOLS_CUSTOM=1
+
+# Clam AV
+declare -g -r RSPAMD_CLAMAV_LABEL='Clam AV'
+declare -g -r RSPAMD_CLAMAV_CHECK=1
+declare -g -r RSPAMD_CLAMAV_CUSTOM=1
 
 ###################################################################################################
 # Fail2ban configs
@@ -1136,13 +1151,22 @@ check_installed_razor() {
     which razor-check &>/dev/null && return 0 || return 1
 }
 
-# check whether oletools is installed
+# check whether Oletools is installed
 # parameters:
 # none
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_oletools() {
     which olevba3 &>/dev/null && return 0 || return 1
+}
+
+# check whether Clam AV is installed
+# parameters:
+# none
+# return values:
+# error code - 0 for installed, 1 for not installed
+check_installed_clamav() {
+    which clamd &>/dev/null && return 0 || return 1
 }
 
 # check whether Fail2ban is installed
@@ -1252,7 +1276,7 @@ check_update_postfwd() {
     wget "$INSTALL_POSTFWD_LINK" -O - 2>/dev/null | grep '^our $VERSION' | awk 'match($0, /= "([^"]+)";/, a) {print a[1]}'
 }
 
-# check oletools version
+# check Oletools version
 # parameters:
 # none
 # return values:
@@ -1261,13 +1285,31 @@ check_version_oletools() {
     olevba3 | head -1 | awk '{print $2}'
 }
 
-# check for update of oletools
+# check for update of Oletools
 # parameters:
 # none
 # return values:
 # stdout - version number of update
 check_update_oletools() {
     pip3 list --outdated --format=columns 2>/dev/null | grep '^oletools\s' | awk '{print $3}'
+}
+
+# check Clam AV version
+# parameters:
+# none
+# return values:
+# stdout - version number
+check_version_clamav() {
+    apt-cache policy clamav | sed -n '2p' | sed -E 's/^.+\s+//'
+}
+
+# check for update of Clam AV
+# parameters:
+# none
+# return values:
+# stdout - version number of update
+check_update_clamav() {
+    apt-cache policy clamav | sed -n '3p' | sed -E 's/^.+\s+//'
 }
 
 ###################################################################################################
@@ -2761,11 +2803,11 @@ pyzor_status() {
 # parameters:
 # none
 # return values:
-# error code - 0 for enabled, 1 for disabled
+# error code - 0 for changes made, 1 for no changes made
 pyzor_enable() {
     declare PACKED_SCRIPT
 
-    if ! grep -q '^pyzor { }$' "$CONFIG_RSPAMD_LOCAL"; then
+    if ! [ -f "$CONFIG_RSPAMD_LOCAL" ] || ! grep -q '^pyzor { }$' "$CONFIG_RSPAMD_LOCAL"; then
         echo 'pyzor { }' >> "$CONFIG_RSPAMD_LOCAL"
     fi
     if ! [ -f "$CONFIG_RSPAMD_GROUPS" ] || [ "$(sed -n '/^group "signatures" {$/,/^}$/p' "$CONFIG_RSPAMD_GROUPS")" != 'group "signatures" {'$'\n\t''.include(try=true; priority=1; duplicate=merge) "$LOCAL_CONFDIR/local.d/signatures_group.conf"'$'\n\t''.include(try=true; priority=10) "$LOCAL_CONFDIR/override.d/signatures_group.conf"'$'\n''}' ]; then
@@ -2840,7 +2882,7 @@ pyzor_enable() {
 # parameters:
 # none
 # return values:
-# error code - 0 for enabled, 1 for disabled
+# none
 pyzor_disable() {
     sed -i '/^pyzor { }$/d' "$CONFIG_RSPAMD_LOCAL"
     sed -i 'H;/^symbols = {$/h;/^}$/!d;x;/\n\t"PYZOR" {/d' "$CONFIG_RSPAMD_SIGNATURES"
@@ -2881,11 +2923,11 @@ razor_status() {
 # parameters:
 # none
 # return values:
-# error code - 0 for enabled, 1 for disabled
+# error code - 0 for changes made, 1 for no changes made
 razor_enable() {
     declare PACKED_SCRIPT
 
-    if ! grep -q '^razor { }$' "$CONFIG_RSPAMD_LOCAL"; then
+    if ! [ -f "$CONFIG_RSPAMD_LOCAL" ] || ! grep -q '^razor { }$' "$CONFIG_RSPAMD_LOCAL"; then
         echo 'razor { }' >> "$CONFIG_RSPAMD_LOCAL"
     fi
     if ! [ -f "$CONFIG_RSPAMD_GROUPS" ] || [ "$(sed -n '/^group "signatures" {$/,/^}$/p' "$CONFIG_RSPAMD_GROUPS")" != 'group "signatures" {'$'\n\t''.include(try=true; priority=1; duplicate=merge) "$LOCAL_CONFDIR/local.d/signatures_group.conf"'$'\n\t''.include(try=true; priority=10) "$LOCAL_CONFDIR/override.d/signatures_group.conf"'$'\n''}' ]; then
@@ -2956,7 +2998,7 @@ razor_enable() {
 # parameters:
 # none
 # return values:
-# error code - 0 for enabled, 1 for disabled
+# none
 razor_disable() {
     sed -i '/^razor { }$/d' "$CONFIG_RSPAMD_LOCAL"
     sed -i 'H;/^symbols = {$/h;/^}$/!d;x;/\n\t"RAZOR" {/d' "$CONFIG_RSPAMD_SIGNATURES"
@@ -2972,7 +3014,7 @@ razor_disable() {
     systemctl daemon-reload
 }
 
-# check oletools status
+# check Oletools status
 # parameters:
 # none
 # return values:
@@ -2989,11 +3031,11 @@ oletools_status() {
     fi
 }
 
-# enable oletools
+# enable Oletools
 # parameters:
 # none
 # return values:
-# error code - 0 for enabled, 1 for disabled
+# error code - 0 for changes made, 1 for no changes made
 oletools_enable() {
     if ! [ -f "$CONFIG_RSPAMD_EXTERNAL" ] || [ "$(sed -n '/^oletools {$/,/^}$/p' "$CONFIG_RSPAMD_EXTERNAL")" != 'oletools {'$'\n\t''log_clean = true;'$'\n\t''servers = "127.0.0.1:10050";'$'\n\t''cache_expire = 86400;'$'\n\t''scan_mime_parts = true;'$'\n''}' ]; then
         echo $'\n''oletools {'$'\n\t''log_clean = true;'$'\n\t''servers = "127.0.0.1:10050";'$'\n\t''cache_expire = 86400;'$'\n\t''scan_mime_parts = true;'$'\n''}' >> "$CONFIG_RSPAMD_EXTERNAL"
@@ -3010,11 +3052,11 @@ oletools_enable() {
     systemctl start olefy.service
 }
 
-# disable oletools
+# disable Oletools
 # parameters:
 # none
 # return values:
-# error code - 0 for enabled, 1 for disabled
+# none
 oletools_disable() {
     sed -i '/^oletools {$/,/^}$/d' "$CONFIG_RSPAMD_EXTERNAL"
 
@@ -3025,6 +3067,40 @@ oletools_disable() {
     groupdel "$OLETOOLS_USER" &>/dev/null
 
     systemctl daemon-reload
+}
+
+# check Clam AV status
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 for disabled
+clamav_status() {
+    if [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ]                                                                                                                                                                                                \
+        && [ "$(sed -n '/^clamav {$/,/^}$/p' "$CONFIG_RSPAMD_ANTIVIRUS")" = 'clamav {'$'\n\t''scan_mime_parts = true;'$'\n\t''scan_text_mine = true;'$'\n\t''symbol = "CLAM_VIRUS";'$'\n\t''type = "clamav";'$'\n\t''action = "reject";'$'\n\t''servers = "127.0.0.1:3310";'$'\n''}' ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# enable Clam AV
+# parameters:
+# none
+# return values:
+# error code - 0 for changes made, 1 for no changes made
+clamav_enable() {
+    if ! [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ] || [ "$(sed -n '/^clamav {$/,/^}$/p' "$CONFIG_RSPAMD_ANTIVIRUS")" != 'clamav {'$'\n\t''scan_mime_parts = true;'$'\n\t''scan_text_mine = true;'$'\n\t''symbol = "CLAM_VIRUS";'$'\n\t''type = "clamav";'$'\n\t''action = "reject";'$'\n\t''servers = "127.0.0.1:3310";'$'\n''}' ]; then
+        echo 'clamav {'$'\n\t''scan_mime_parts = true;'$'\n\t''scan_text_mine = true;'$'\n\t''symbol = "CLAM_VIRUS";'$'\n\t''type = "clamav";'$'\n\t''action = "reject";'$'\n\t''servers = "127.0.0.1:3310";'$'\n''}' >> "$CONFIG_RSPAMD_ANTIVIRUS"
+    fi
+}
+
+# disable Clam AV
+# parameters:
+# none
+# return values:
+# none
+clamav_disable() {
+    sed -i '/^clamav {$/,/^}$/d' "$CONFIG_RSPAMD_ANTIVIRUS"
 }
 
 # checks status of given Rspamd feature
@@ -4085,7 +4161,12 @@ install_rspamd() {
     echo "deb [arch=amd64] http://rspamd.com/apt-stable/ $CODENAME main" > /etc/apt/sources.list.d/rspamd.list
     echo "deb-src [arch=amd64] http://rspamd.com/apt-stable/ $CODENAME main" >> /etc/apt/sources.list.d/rspamd.list
     apt update &>/dev/null
-    apt install -y rspamd &>/dev/null
+    apt install -y redis-server rspamd &>/dev/null
+    echo 'bind_socket = "127.0.0.1:11333";' > "$CONFIG_RSPAMD_NORMAL"
+    echo 'bind_socket = "127.0.0.1:11333";'$'\n''secure_ip = "127.0.0.1";' > "$CONFIG_RSPAMD_CONTROLLER"
+    echo 'bind_socket = "127.0.0.1:11333";'$'\n''upstream {'$'\n\t''local {'$'\n\t\t''hosts = "127.0.0.1";'$'\n\t\t''default = true;'$'\n\t''}'$'\n''}' > "$CONFIG_RSPAMD_PROXY"
+    echo 'bind_socket = "127.0.0.1:11333";'$'\n''allow_update [ "127.0.0.1" ]' > "$CONFIG_RSPAMD_FUZZY"
+    rspamd_restart
 }
 
 # install Pyzor
@@ -4108,14 +4189,47 @@ install_razor() {
     apt install -y razor &>/dev/null
 }
 
-# install oletools
+# install Oletools
 # parameters:
 # none
 # return values:
 # none
 install_oletools() {
     show_wait
-    pip3 install oletools python-magic &>/dev/null
+    pip3 install -U https://github.com/decalage2/oletools/archive/master.zip &>/dev/null
+    pip3 install python-magic &>/dev/null
+    echo 'OLEFY_BINDADDRESS=127.0.0.1' > /etc/olefy.conf
+}
+
+# install Clam AV
+# parameters:
+# none
+# return values:
+# none
+install_clamav() {
+    declare -r PACKED_CONFIG='
+    H4sIAJxd514AA2VVTW/jNhC961cQ2HMj2UbSXhVZ6RqQVqql7Ba9FDQ5lohQpEFSziq/vkN92Zsi
+    QOx5HA5n5r0ZfyklUAvEAOUk7K0JbUsNhFyzkEna0etvnEKnVXhM432ePuzhJKh6aD7IWRvCwVEh
+    bVAnZaXZGziy220ib8acG7LZ/v4Q4d8m+EJq6C7aUDPshQHmtBmIsERpRyxec5oIZzHemfbSkdB1
+    F9KCAX/Q0Tcg+grGCC5Ug7FcC6vru3AtAXUVRqsOlCNXagQ9SbCkzsv94RjiR1ineUku2lqBJ8Gr
+    BUOm8oKKUZVjEcSZHkYrNqwVV5iA2XiWWF6qmBkuDjg5U2khyOnPtZgjsN5YoRXZPAYvWkr9vp5V
+    QyeFerPzten0RUj4dHBEEmrRge4d2fwR+fh165mx2ElvJVopDImv/NVDDxmoBovHBzPdVIOVupkj
+    oX3Ujrq5CDRfKBNSuIFkxZ//ZkUSZ08eTpB+dbv0HcxJoxwmoDQgew6p8u1EqhYgVlQOH2C+0Q5I
+    gm2Mvwd76ugJlXRjN0QiQilOs46C4nwWTFC5eBZKDvNDFchz0gJ7I7unKMIGGWiM7tXSaBRdv5Tm
+    GSrTqS5sSdqdgHPgCG2ifDwtsnR7Y7Pcv9yMr3WerVe98U2bjkrxAePtFaxpY8l2BCpmxMXd/B5H
+    9B9xqYcLHFlDNtOr1Y/5nfSncIUqinxpK9ArrOr3tC98x7LRBuXbCbYHNxF7yzXN5oAHLmGRxS4K
+    EoMyHsMM1kFnJ6eyFbbF6ahEo6jrDXzGMeLrMfuExvKdDnYUd1VlubAddaxd6P+/UyI1fVuOqXHC
+    p3xQDoyd018I8+WUr/E9ad6fyhyspc3ag6/QG2GdYKMLagc4KLYosMJsma+Ge9XcmjSdJrrrqOL3
+    Y4P9qUDx5/68INtoHKRxYJDkCPlx6IERl2gHddZTW7xyxjpzyrDLK004rvgv973xaU7OqFIGtd4L
+    u3QEv/pJScC4Sc2/wpS1cNscPpDPEUc7iqYcRxlNWpzEOO4ID2wn1d0tmafl3Hrv6f7KiCWPI3Bg
+    +H2cjCgok2M6VpCJTrj5kgcx6B3+GK2+vz7vk/s7z/ZFUt3N049yt84TBhptzA15A9ohNq8oH8Av
+    IQw47wXdzHth/nhAxLuMLVmXFvq/Kk/IbUV5zPfK5xUFzwOSqPl8ZbEq3ye/7GrTW+dHAvh6uAjj
+    aexAoWLGUJL35WKyC4yKvOKPim857r//AAukEgEuBwAA
+    '
+
+    apt install -y clamav clamav-daemon clamav-unofficial-sigs &>/dev/null
+    printf '%s' $PACKED_CONFIG | base64 -d | gunzip > /etc/clamav/clamd.conf
+    systemctl clamav-daemon restart &>/dev/null
 }
 
 # install Fail2ban
