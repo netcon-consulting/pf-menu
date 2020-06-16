@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.21.0 for Postfix
+# menu.sh V1.22.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,10 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - added install option for Acme.sh
-# - added install option for Sophos AV
-# - added Rspamd feature Sophos AV
-# - bugfixes
+# - added info message when generating DH-param file
 #
 ###################################################################################################
 
@@ -1393,7 +1390,11 @@ tls_enable() {
         exec 3>&-
 
         if [ "$RET_CODE" = 0 ]; then
-            [ -f "$FILE_DHPARAM" ] || openssl dhparam -out "$FILE_DHPARAM" 2048 &>/dev/null
+            if ! [ -f "$FILE_DHPARAM" ]; then
+                "$DIALOG" --backtitle "$TITLE_MAIN" --title '' --infobox 'Generating 2048-bit Diffie-Hellman param file.'$'\n\n''This may take a longer...' 3 20
+
+                openssl dhparam -out "$FILE_DHPARAM" 2048 &>/dev/null
+            fi
 
             postconf "smtp_tls_cert_file=$FILE_CERT" 2>/dev/null
             postconf "smtp_tls_key_file=$FILE_KEY" 2>/dev/null
