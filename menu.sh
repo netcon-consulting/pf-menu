@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.20.0 for Postfix
+# menu.sh V1.21.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,6 +16,9 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
+# - added install option for Acme.sh
+# - added install option for Sophos AV
+# - added Rspamd feature Sophos AV
 # - bugfixes
 #
 ###################################################################################################
@@ -91,9 +94,11 @@ INSTALL_FEATURE+=('pyzor')
 INSTALL_FEATURE+=('razor')
 INSTALL_FEATURE+=('oletools')
 INSTALL_FEATURE+=('clamav')
+INSTALL_FEATURE+=('sophosav')
 INSTALL_FEATURE+=('fail2ban')
 INSTALL_FEATURE+=('dkim')
 INSTALL_FEATURE+=('spf')
+INSTALL_FEATURE+=('acme')
 INSTALL_FEATURE+=('logwatch')
 INSTALL_FEATURE+=('logmanager')
 INSTALL_FEATURE+=('reboot')
@@ -136,6 +141,9 @@ declare -g -r INSTALL_OLETOOLS_CUSTOM=1
 declare -g -r LABEL_INSTALL_CLAMAV='Clam AV'
 declare -g -r INSTALL_CLAMAV_CUSTOM=1
 
+# Sophos AV
+declare -g -r LABEL_INSTALL_SOPHOSAV='Sophos AV'
+
 # Fail2ban
 declare -g -r LABEL_INSTALL_FAIL2BAN='Fail2ban'
 declare -g -r INSTALL_FAIL2BAN_PACKAGE='fail2ban'
@@ -147,6 +155,9 @@ declare -g -r INSTALL_DKIM_PACKAGE='opendkim'
 # SPF-Check
 declare -g -r LABEL_INSTALL_SPF='SPF-check'
 declare -g -r INSTALL_SPF_PACKAGE='postfix-policyd-spf-python'
+
+# Acme.sh
+declare -g -r LABEL_INSTALL_ACME='Acme.sh'
 
 # Logwatch
 declare -g -r LABEL_INSTALL_LOGWATCH='Logwatch'
@@ -501,6 +512,7 @@ declare -g -r SPAMASSASSIN_WLUPDATE_CUSTOM=1
 ###################################################################################################
 # Rspamd configs
 declare -g -r CONFIG_RSPAMD_LOCAL="$DIR_CONFIG_RSPAMD/rspamd.conf.local"
+declare -g -r CONFIG_RSPAMD_REDIS="$DIR_CONFIG_RSPAMD/local.d/redis.conf"
 declare -g -r CONFIG_RSPAMD_GREYLIST="$DIR_CONFIG_RSPAMD/local.d/greylist.conf"
 declare -g -r CONFIG_RSPAMD_OPTIONS="$DIR_CONFIG_RSPAMD/local.d/options.inc"
 declare -g -r CONFIG_RSPAMD_HISTORY="$DIR_CONFIG_RSPAMD/local.d/history_redis.conf"
@@ -527,6 +539,7 @@ RSPAMD_CONFIG+=('whitelist_ip')
 RSPAMD_CONFIG+=('whitelist_domain')
 RSPAMD_CONFIG+=('whitelist_from')
 RSPAMD_CONFIG+=('whitelist_to')
+RSPAMD_CONFIG+=('whitelist_antivirus_from')
 RSPAMD_CONFIG+=('blacklist_country')
 
 # Whitelist sender IP
@@ -545,9 +558,16 @@ declare -g -r CONFIG_RSPAMD_WHITELIST_FROM="$DIR_LIB_RSPAMD/whitelist_sender_fro
 declare -g -r LABEL_CONFIG_RSPAMD_WHITELIST_TO='Whitelist recipient to'
 declare -g -r CONFIG_RSPAMD_WHITELIST_TO="$DIR_LIB_RSPAMD/whitelist_recipient_to"
 
+# Whitelist antivirus sender from
+declare -g -r LABEL_CONFIG_RSPAMD_WHITELIST_ANTIVIRUS_FROM='Whitelist antivirus sender from'
+declare -g -r CONFIG_RSPAMD_WHITELIST_ANTIVIRUS_FROM="$DIR_LIB_RSPAMD/whitelist_antivirus_sender_from"
+
 # Blacklist sender country
 declare -g -r LABEL_CONFIG_RSPAMD_BLACKLIST_COUNTRY='Blacklist sender country'
 declare -g -r CONFIG_RSPAMD_BLACKLIST_COUNTRY="$DIR_LIB_RSPAMD/blacklist_sender_country"
+
+declare -g -r CONFIG_CLAMAV='clamav {'$'\n\t''max_size = 50000000;'$'\n\t''log_clean = true;'$'\n\t'"whitelist = \"$CONFIG_RSPAMD_WHITELIST_ANTIVIRUS_FROM\";"$'\n\t''scan_mime_parts = true;'$'\n\t''scan_text_mine = true;'$'\n\t''symbol = "CLAM_VIRUS";'$'\n\t''type = "clamav";'$'\n\t''action = "reject";'$'\n\t''servers = "127.0.0.1:3310";'$'\n''}'
+declare -g -r CONFIG_SOPHOSAV='sophos {'$'\n\t''max_size = 50000000;'$'\n\t''log_clean = true;'$'\n\t'"whitelist = \"$CONFIG_RSPAMD_WHITELIST_ANTIVIRUS_FROM\";"$'\n\t''scan_mime_parts = true;'$'\n\t''scan_text_mine = true;'$'\n\t''symbol = "SOPHOS_VIRUS";'$'\n\t''type = "sophos";'$'\n\t''action = "reject";'$'\n\t''servers = "127.0.0.1:4010";'$'\n\t''patterns {'$'\n\t\t'"JUST_EICAR = '^Eicar-Test-Signature$';"$'\n\t''}'$'\n''}'
 
 ###################################################################################################
 # Rspamd features
@@ -568,6 +588,7 @@ RSPAMD_FEATURE+=('pyzor')
 RSPAMD_FEATURE+=('razor')
 RSPAMD_FEATURE+=('oletools')
 RSPAMD_FEATURE+=('clamav')
+RSPAMD_FEATURE+=('sophosav')
 
 for FEATURE in "${RSPAMD_FEATURE[@]}"; do
     declare -g -a RSPAMD_${FEATURE^^}
@@ -645,6 +666,11 @@ declare -g -r RSPAMD_OLETOOLS_CUSTOM=1
 declare -g -r RSPAMD_CLAMAV_LABEL='Clam AV'
 declare -g -r RSPAMD_CLAMAV_CHECK=1
 declare -g -r RSPAMD_CLAMAV_CUSTOM=1
+
+# Sophos AV
+declare -g -r RSPAMD_SOPHOSAV_LABEL='Sophos AV'
+declare -g -r RSPAMD_SOPHOSAV_CHECK=1
+declare -g -r RSPAMD_SOPHOSAV_CUSTOM=1
 
 ###################################################################################################
 # Fail2ban configs
@@ -1167,6 +1193,15 @@ check_installed_clamav() {
     which clamd &>/dev/null && return 0 || return 1
 }
 
+# check whether Sophos AV is installed
+# parameters:
+# none
+# return values:
+# error code - 0 for installed, 1 for not installed
+check_installed_sophosav() {
+    which savdid &>/dev/null && return 0 || return 1
+}
+
 # check whether Fail2ban is installed
 # parameters:
 # none
@@ -1192,6 +1227,15 @@ check_installed_dkim() {
 # error code - 0 for installed, 1 for not installed
 check_installed_spf() {
     which policyd-spf &>/dev/null && return 0 || return 1
+}
+
+# check whether Acme.sh is installed
+# parameters:
+# none
+# return values:
+# error code - 0 for installed, 1 for not installed
+check_installed_acme() {
+    [ -f '/root/.acme.sh/acme.sh' ] && return 0 || return 1
 }
 
 # check whether Logwatch is installed
@@ -3073,8 +3117,7 @@ oletools_disable() {
 # return values:
 # error code - 0 for enabled, 1 for disabled
 clamav_status() {
-    if [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ]                                                                                                                                                                                                \
-        && [ "$(sed -n '/^clamav {$/,/^}$/p' "$CONFIG_RSPAMD_ANTIVIRUS")" = 'clamav {'$'\n\t''scan_mime_parts = true;'$'\n\t''scan_text_mine = true;'$'\n\t''symbol = "CLAM_VIRUS";'$'\n\t''type = "clamav";'$'\n\t''action = "reject";'$'\n\t''servers = "127.0.0.1:3310";'$'\n''}' ]; then
+    if [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ] && [ "$(sed -n '/^clamav {$/,/^}$/p' "$CONFIG_RSPAMD_ANTIVIRUS")" = "$CONFIG_CLAMAV" ]; then
         return 0
     else
         return 1
@@ -3087,8 +3130,10 @@ clamav_status() {
 # return values:
 # error code - 0 for changes made, 1 for no changes made
 clamav_enable() {
-    if ! [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ] || [ "$(sed -n '/^clamav {$/,/^}$/p' "$CONFIG_RSPAMD_ANTIVIRUS")" != 'clamav {'$'\n\t''scan_mime_parts = true;'$'\n\t''scan_text_mine = true;'$'\n\t''symbol = "CLAM_VIRUS";'$'\n\t''type = "clamav";'$'\n\t''action = "reject";'$'\n\t''servers = "127.0.0.1:3310";'$'\n''}' ]; then
-        echo 'clamav {'$'\n\t''scan_mime_parts = true;'$'\n\t''scan_text_mine = true;'$'\n\t''symbol = "CLAM_VIRUS";'$'\n\t''type = "clamav";'$'\n\t''action = "reject";'$'\n\t''servers = "127.0.0.1:3310";'$'\n''}' >> "$CONFIG_RSPAMD_ANTIVIRUS"
+    if ! [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ] || [ "$(sed -n '/^clamav {$/,/^}$/p' "$CONFIG_RSPAMD_ANTIVIRUS")" != "$CONFIG_CLAMAV" ]; then
+        [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ] && sed -i '/^clamav {$/,/^}$/d' "$CONFIG_RSPAMD_ANTIVIRUS"
+        echo "$CONFIG_CLAMAV" >> "$CONFIG_RSPAMD_ANTIVIRUS"
+        touch "$CONFIG_RSPAMD_WHITELIST_ANTIVIRUS_FROM"
     fi
 }
 
@@ -3099,6 +3144,41 @@ clamav_enable() {
 # none
 clamav_disable() {
     sed -i '/^clamav {$/,/^}$/d' "$CONFIG_RSPAMD_ANTIVIRUS"
+}
+
+# check Sophos AV status
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 for disabled
+sophosav_status() {
+    if [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ] && [ "$(sed -n '/^sophos {$/,/^}$/p' "$CONFIG_RSPAMD_ANTIVIRUS")" = "$CONFIG_SOPHOSAV" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# enable Sophos AV
+# parameters:
+# none
+# return values:
+# error code - 0 for changes made, 1 for no changes made
+sophosav_enable() {
+    if ! [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ] || [ "$(sed -n '/^sophos {$/,/^}$/p' "$CONFIG_RSPAMD_ANTIVIRUS")" != "$CONFIG_SOPHOSAV" ]; then
+        [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ] && sed -i '/^sophos {$/,/^}$/d' "$CONFIG_RSPAMD_ANTIVIRUS"
+        echo "$CONFIG_SOPHOSAV" >> "$CONFIG_RSPAMD_ANTIVIRUS"
+        touch "$CONFIG_RSPAMD_WHITELIST_ANTIVIRUS_FROM"
+    fi
+}
+
+# disable Sophos AV
+# parameters:
+# none
+# return values:
+# none
+sophosav_disable() {
+    sed -i '/^sophos {$/,/^}$/d' "$CONFIG_RSPAMD_ANTIVIRUS"
 }
 
 # checks status of given Rspamd feature
@@ -4160,6 +4240,7 @@ install_rspamd() {
     echo "deb-src [arch=amd64] http://rspamd.com/apt-stable/ $CODENAME main" >> /etc/apt/sources.list.d/rspamd.list
     apt update &>/dev/null
     apt install -y redis-server rspamd &>/dev/null
+    echo 'servers = "127.0.0.1";' > "$CONFIG_RSPAMD_REDIS"
     echo 'bind_socket = "127.0.0.1:11333";' > "$CONFIG_RSPAMD_NORMAL"
     echo 'bind_socket = "127.0.0.1:11334";'$'\n''secure_ip = "127.0.0.1";' > "$CONFIG_RSPAMD_CONTROLLER"
     echo 'bind_socket = "127.0.0.1:11332";'$'\n''upstream {'$'\n\t''local {'$'\n\t\t''hosts = "127.0.0.1";'$'\n\t\t''default = true;'$'\n\t''}'$'\n''}' > "$CONFIG_RSPAMD_PROXY"
@@ -4230,6 +4311,104 @@ install_clamav() {
     systemctl clamav-daemon restart &>/dev/null
 }
 
+# install Sophos AV
+# parameters:
+# none
+# return values:
+# none
+install_sophosav() {
+    declare -r FILE_AV='sav-linux-free-9.tgz'
+    declare -r FILE_INTERFACE='savdi-linux-64bit.tar'
+    declare -r DIR_TMP='/tmp/TMPsophosav'
+    declare -r PACKED_CONFIG='
+    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
+    pHYp4hIAAA==
+    '
+    declare -r PACKED_SCRIPT='
+    H4sIAL226F4AA22QPW7DMAyFd51CQ1dFJ9Dgwi3ioYURJ+1geFBlKiWiH0Oi3Pr2VVN4K8CF5Hsf
+    iTdeAtLEWsgm4UIYgxri8hkzH5o33m5BezS8CwTJagO81eBjYI2tAxWAvmK6HUinKxBj4wBpRQMT
+    O28LKFt3GK6s79pndKDkqpNMJcis1xnnw4Ize/oGM1Q/KVlyki4a7eQH7houahkugczuMjFYLiz/
+    h8ZFvgNP4KKe1Z1zQ+e4OF56/vDSdK/1F3aCfL8Yg7AaXUnA+oSrJjj7RVEqv30kMDRsmcArW5zb
+    R8fo4U/Dxi5UkHMTe9c1oPlxU744QlEypD2UH/vzva1hAQAA
+    '
+
+    show_wait
+    apt install -y file &>/dev/null
+
+    if [ -f "/root/$FILE_AV" ]; then
+        FILE_INSTALLER="/root/$FILE_AV"
+    else
+        exec 3>&1
+        FILE_INSTALLER=$(get_file 'Select Sophos AV installer' '/root' 1)
+        exec 3>&-
+    fi
+
+    mkdir -p "$DIR_TMP"
+    tar -xzf "$FILE_INSTALLER" -C "$DIR_TMP"
+    clear
+    "$DIR_TMP"/sophos-av/install.sh
+
+    ln -s /opt/sophos-av/lib64/libsavi.so.3 /usr/local/lib/libsavi.so.3 &>/dev/null
+    ln -s /opt/sophos-av/lib64/libssp.so.0 /usr/local/lib/libssp.so.0 &>/dev/null
+
+    if [ -f "/root/$FILE_INTERFACE" ]; then
+        FILE_INSTALLER="/root/$FILE_INTERFACE"
+    else
+        exec 3>&1
+        FILE_INSTALLER=$(get_file 'Select Sophos AV interface installer' '/root' 1)
+        exec 3>&-
+
+        show_wait
+    fi
+
+    tar -xf "$FILE_INSTALLER" -C "$DIR_TMP"
+    "$DIR_TMP"/savdi-install/savdi_install.sh &>/dev/null
+    cp "$DIR_TMP"/savdi-install/savdid /usr/local/bin/
+    rm -rf "$DIR_TMP"
+
+    printf '%s' $PACKED_CONFIG | base64 -d | gunzip > /etc/savdid.conf
+    printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > /etc/systemd/system/savdid.service
+
+    systemctl daemon-reload
+    systemctl enable sav-update.service
+    systemctl start sav-update.service
+    systemctl enable savdid
+    systemctl start savdid
+}
+
 # install Fail2ban
 # parameters:
 # none
@@ -4259,6 +4438,41 @@ install_dkim() {
 install_spf() {
     show_wait
     apt install -y postfix-policyd-spf-python &>/dev/null
+}
+
+# install Acme.sh
+# parameters:
+# none
+# return values:
+# none
+install_acme() {
+    declare -r HOST_NAME="$(hostname -f)"
+    declare -r DIR_CERT="/root/.acme.sh/$HOST_NAME"
+    declare -r DIR_SSL='/etc/ssl'
+    declare -r PACKED_SCRIPT='
+    H4sIADN+6F4AA1NW1E/KzNNPSizO4OLSLwaxMwtKEpNyUosVdD0VPP0CQkMUDBV0CxRKkgsUdHMh
+    lG5KQX5RiYKFgYJuloKjs7NrQAiXflF+fom+XmJybqpecYY+lAaqTS7KzwNSGfm5qQqoijAsdIFa
+    SIR1AL1vT3i5AAAA
+    '
+
+    show_wait
+    apt install -y socat &>/dev/null
+    wget -O - https://get.acme.sh 2>/dev/null | sh &>/dev/null
+    /root/.acme.sh/acme.sh --uninstall-cronjob &>/dev/null
+    iptables -I INPUT 1 -p tcp -m tcp --dport 80 -j ACCEPT
+    /root/.acme.sh/acme.sh --issue --standalone -d "$HOST_NAME" &>/dev/null
+    iptables -D INPUT -p tcp -m tcp --dport 80 -j ACCEPT
+
+    if [ -f "$DIR_CERT/$HOST_NAME.cer" ]; then
+        cp -f "$DIR_CERT/$HOST_NAME.cer" "$DIR_SSL/$HOST_NAME.cer"
+        cp -f "$DIR_CERT/$HOST_NAME.key" "$DIR_SSL/$HOST_NAME.key"
+        cp -f "$DIR_CERT/fullchain.cer" "$DIR_SSL/fullchain.cer"
+        printf '%s' $PACKED_SCRIPT | base64 -d | gunzip | sed "s/__HOST_NAME__/$HOST_NAME/g" > /root/.acme.sh/get_cert.sh
+        chmod +x /root/.acme.sh/get_cert.sh
+        add_crontab '@daily /root/.acme.sh/get_cert.sh > /dev/null'
+    else
+        show_info 'Error' "Error getting Let's Encrypt certificate."
+    fi
 }
 
 # install Logwatch
