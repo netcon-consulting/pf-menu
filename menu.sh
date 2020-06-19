@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.22.0 for Postfix
+# menu.sh V1.23.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,10 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - added info message when generating DH-param file
+# - for the install menu allow batch installation of multiple packages
+# - moved Rspamd submenu from Addons to main menu
+# - cosmetic changes
+# - bugfixes
 #
 ###################################################################################################
 
@@ -134,8 +137,8 @@ declare -g -r INSTALL_RAZOR_PACKAGE='razor'
 declare -g -r LABEL_INSTALL_OLETOOLS='Oletools'
 declare -g -r INSTALL_OLETOOLS_CUSTOM=1
 
-# Clam AV
-declare -g -r LABEL_INSTALL_CLAMAV='Clam AV'
+# ClamAV
+declare -g -r LABEL_INSTALL_CLAMAV='ClamAV'
 declare -g -r INSTALL_CLAMAV_CUSTOM=1
 
 # Sophos AV
@@ -153,8 +156,8 @@ declare -g -r INSTALL_DKIM_PACKAGE='opendkim'
 declare -g -r LABEL_INSTALL_SPF='SPF-check'
 declare -g -r INSTALL_SPF_PACKAGE='postfix-policyd-spf-python'
 
-# Acme.sh
-declare -g -r LABEL_INSTALL_ACME='Acme.sh'
+# Let's Encrypt Certificate
+declare -g -r LABEL_INSTALL_ACME="Let's Encrypt Certificate"
 
 # Logwatch
 declare -g -r LABEL_INSTALL_LOGWATCH='Logwatch'
@@ -445,7 +448,6 @@ ADDON_CONFIG=()
 ADDON_CONFIG+=('resolver')
 ADDON_CONFIG+=('postfwd')
 ADDON_CONFIG+=('spamassassin')
-ADDON_CONFIG+=('rspamd')
 ADDON_CONFIG+=('dkim')
 ADDON_CONFIG+=('spf')
 ADDON_CONFIG+=('fail2ban')
@@ -463,9 +465,6 @@ declare -g -r CONFIG_POSTFWD='/etc/postfix/postfwd.cf'
 
 # Spamassassin
 declare -g -r LABEL_ADDON_SPAMASSASSIN='Spamassassin'
-
-# Rspamd
-declare -g -r LABEL_ADDON_RSPAMD='Rspamd'
 
 # OpenDKIM
 declare -g -r LABEL_ADDON_DKIM='OpenDKIM'
@@ -659,8 +658,8 @@ declare -g -r RSPAMD_OLETOOLS_LABEL='Oletools'
 declare -g -r RSPAMD_OLETOOLS_CHECK=1
 declare -g -r RSPAMD_OLETOOLS_CUSTOM=1
 
-# Clam AV
-declare -g -r RSPAMD_CLAMAV_LABEL='Clam AV'
+# ClamAV
+declare -g -r RSPAMD_CLAMAV_LABEL='ClamAV'
 declare -g -r RSPAMD_CLAMAV_CHECK=1
 declare -g -r RSPAMD_CLAMAV_CUSTOM=1
 
@@ -1181,7 +1180,7 @@ check_installed_oletools() {
     which olevba3 &>/dev/null && return 0 || return 1
 }
 
-# check whether Clam AV is installed
+# check whether ClamAV is installed
 # parameters:
 # none
 # return values:
@@ -1333,7 +1332,7 @@ check_update_oletools() {
     pip3 list --outdated --format=columns 2>/dev/null | grep '^oletools\s' | awk '{print $3}'
 }
 
-# check Clam AV version
+# check ClamAV version
 # parameters:
 # none
 # return values:
@@ -1342,7 +1341,7 @@ check_version_clamav() {
     apt-cache policy clamav | sed -n '2p' | sed -E 's/^.+\s+//'
 }
 
-# check for update of Clam AV
+# check for update of ClamAV
 # parameters:
 # none
 # return values:
@@ -3112,7 +3111,7 @@ oletools_disable() {
     systemctl daemon-reload
 }
 
-# check Clam AV status
+# check ClamAV status
 # parameters:
 # none
 # return values:
@@ -3125,7 +3124,7 @@ clamav_status() {
     fi
 }
 
-# enable Clam AV
+# enable ClamAV
 # parameters:
 # none
 # return values:
@@ -3138,7 +3137,7 @@ clamav_enable() {
     fi
 }
 
-# disable Clam AV
+# disable ClamAV
 # parameters:
 # none
 # return values:
@@ -4281,7 +4280,7 @@ install_oletools() {
     echo 'OLEFY_BINDADDRESS=127.0.0.1' > /etc/olefy.conf
 }
 
-# install Clam AV
+# install ClamAV
 # parameters:
 # none
 # return values:
@@ -4307,6 +4306,7 @@ install_clamav() {
     aexAoWLGUJL35WKyC4yKvOKPim857r//AAukEgEuBwAA
     '
 
+    show_wait
     apt install -y clamav clamav-daemon clamav-unofficial-sigs &>/dev/null
     printf '%s' $PACKED_CONFIG | base64 -d | gunzip > /etc/clamav/clamd.conf
     systemctl clamav-daemon restart &>/dev/null
@@ -4365,49 +4365,59 @@ install_sophosav() {
     h8ZFvgNP4KKe1Z1zQ+e4OF56/vDSdK/1F3aCfL8Yg7AaXUnA+oSrJjj7RVEqv30kMDRsmcArW5zb
     R8fo4U/Dxi5UkHMTe9c1oPlxU744QlEypD2UH/vzva1hAQAA
     '
+    declare INSTALLER_AV INSTALLER_INTERFACE
 
-    show_wait
-    apt install -y file &>/dev/null
+    INSTALLER_AV=""
 
     if [ -f "/root/$FILE_AV" ]; then
-        FILE_INSTALLER="/root/$FILE_AV"
+        INSTALLER_AV="/root/$FILE_AV"
     else
         exec 3>&1
-        FILE_INSTALLER=$(get_file 'Select Sophos AV installer' '/root' 1)
+        INSTALLER_AV=$(get_file 'Select Sophos AV installer' '/root' 1)
         exec 3>&-
     fi
 
-    mkdir -p "$DIR_TMP"
-    tar -xzf "$FILE_INSTALLER" -C "$DIR_TMP"
-    clear
-    "$DIR_TMP"/sophos-av/install.sh
+    if ! [ -z "$INSTALLER_AV" ]; then
+        INSTALLER_INTERFACE=""
 
-    ln -s /opt/sophos-av/lib64/libsavi.so.3 /usr/local/lib/libsavi.so.3 &>/dev/null
-    ln -s /opt/sophos-av/lib64/libssp.so.0 /usr/local/lib/libssp.so.0 &>/dev/null
+        if [ -f "/root/$FILE_INTERFACE" ]; then
+            INSTALLER_INTERFACE="/root/$FILE_INTERFACE"
+        else
+            exec 3>&1
+            INSTALLER_INTERFACE=$(get_file 'Select Sophos AV interface installer' '/root' 1)
+            exec 3>&-
+        fi
 
-    if [ -f "/root/$FILE_INTERFACE" ]; then
-        FILE_INSTALLER="/root/$FILE_INTERFACE"
-    else
-        exec 3>&1
-        FILE_INSTALLER=$(get_file 'Select Sophos AV interface installer' '/root' 1)
-        exec 3>&-
+        if ! [ -z "$INSTALLER_INTERFACE" ]; then
+            show_wait
+            apt install -y file &>/dev/null
 
-        show_wait
+            mkdir -p "$DIR_TMP"
+
+            tar -xzf "$INSTALLER_AV" -C "$DIR_TMP"
+            clear
+            "$DIR_TMP"/sophos-av/install.sh
+
+            show_wait
+            ln -s /opt/sophos-av/lib64/libsavi.so.3 /usr/local/lib/libsavi.so.3 &>/dev/null
+            ln -s /opt/sophos-av/lib64/libssp.so.0 /usr/local/lib/libssp.so.0 &>/dev/null
+
+            tar -xf "$INSTALLER_INTERFACE" -C "$DIR_TMP"
+            "$DIR_TMP"/savdi-install/savdi_install.sh &>/dev/null
+            cp "$DIR_TMP"/savdi-install/savdid /usr/local/bin/
+
+            rm -rf "$DIR_TMP"
+
+            printf '%s' $PACKED_CONFIG | base64 -d | gunzip > /etc/savdid.conf
+            printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > /etc/systemd/system/savdid.service
+
+            systemctl daemon-reload
+            systemctl enable sav-update.service
+            systemctl start sav-update.service
+            systemctl enable savdid
+            systemctl start savdid
+        fi
     fi
-
-    tar -xf "$FILE_INSTALLER" -C "$DIR_TMP"
-    "$DIR_TMP"/savdi-install/savdi_install.sh &>/dev/null
-    cp "$DIR_TMP"/savdi-install/savdid /usr/local/bin/
-    rm -rf "$DIR_TMP"
-
-    printf '%s' $PACKED_CONFIG | base64 -d | gunzip > /etc/savdid.conf
-    printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > /etc/systemd/system/savdid.service
-
-    systemctl daemon-reload
-    systemctl enable sav-update.service
-    systemctl start sav-update.service
-    systemctl enable savdid
-    systemctl start savdid
 }
 
 # install Fail2ban
@@ -4441,7 +4451,7 @@ install_spf() {
     apt install -y postfix-policyd-spf-python &>/dev/null
 }
 
-# install Acme.sh
+# install Let's Encrypt Certificate
 # parameters:
 # none
 # return values:
@@ -4632,12 +4642,12 @@ menu_install() {
                         VERSION_AVAILABLE="$(check_update_$FEATURE)"
 
                         if [ "$VERSION_CURRENT" = "$VERSION_AVAILABLE" ]; then
-                            MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed)")
+                            MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed)" 'off')
                         else
-                            MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed, $VERSION_AVAILABLE available)")
+                            MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed, $VERSION_AVAILABLE available)" 'off')
                         fi
                     else
-                        MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") (installed)")
+                        MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") (installed)" 'off')
                     fi
                 else
                     PACKAGE_INFO="$(apt-cache policy "$NAME_PACKAGE")"
@@ -4645,53 +4655,53 @@ menu_install() {
                     VERSION_AVAILABLE="$(echo "$PACKAGE_INFO" | sed -n '3p' | sed -E 's/^.+\s+//')"
 
                     if [ "$VERSION_CURRENT" = "$VERSION_AVAILABLE" ]; then
-                        MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed)")
+                        MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed)" 'off')
                     else
-                        MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed, $VERSION_AVAILABLE available)")
+                        MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed, $VERSION_AVAILABLE available)" 'off')
                     fi
                 fi
             else
-                MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\")")
+                MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\")" 'off')
             fi
         done
 
         exec 3>&1
-        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_INSTALL[@]}" 2>&1 1>&3)"
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --checklist '' 0 0 0 "${MENU_INSTALL[@]}" 2>&1 1>&3)"
         RET_CODE="$?"
         exec 3>&-
 
-        if [ "$RET_CODE" = 0 ]; then
-            if "check_installed_$DIALOG_RET"; then
-                NAME_PACKAGE="$(eval echo \"\$INSTALL_${DIALOG_RET^^}_PACKAGE\")"
+        if [ "$RET_CODE" = 0 ] && ! [ -z "$DIALOG_RET" ]; then
+            for ITEM in $DIALOG_RET; do
+                if "check_installed_$ITEM"; then
+                    NAME_PACKAGE="$(eval echo \"\$INSTALL_${ITEM^^}_PACKAGE\")"
 
-                if [ -z "$NAME_PACKAGE" ]; then
-                    get_yesno "'$(eval echo \"\$LABEL_INSTALL_${DIALOG_RET^^}\")' already installed. Re-install?"
+                    if [ -z "$NAME_PACKAGE" ]; then
+                        get_yesno "'$(eval echo \"\$LABEL_INSTALL_${ITEM^^}\")' already installed. Re-install?"
 
-                    [ "$?" = 0 ] && "install_$DIALOG_RET"
-                else
-                    PACKAGE_INFO="$(apt-cache policy "$NAME_PACKAGE")"
-                    VERSION_CURRENT="$(echo "$PACKAGE_INFO" | sed -n '2p' | sed -E 's/^.+\s+//')"
-                    VERSION_AVAILABLE="$(echo "$PACKAGE_INFO" | sed -n '3p' | sed -E 's/^.+\s+//')"
+                        [ "$?" = 0 ] && "install_$ITEM"
+                    else
+                        PACKAGE_INFO="$(apt-cache policy "$NAME_PACKAGE")"
+                        VERSION_CURRENT="$(echo "$PACKAGE_INFO" | sed -n '2p' | sed -E 's/^.+\s+//')"
+                        VERSION_AVAILABLE="$(echo "$PACKAGE_INFO" | sed -n '3p' | sed -E 's/^.+\s+//')"
 
-                    if [ "$VERSION_CURRENT" = "$VERSION_AVAILABLE" ]; then
-                        get_yesno "'$(eval echo \"\$LABEL_INSTALL_${DIALOG_RET^^}\")' already installed. Re-install?"
+                        if [ "$VERSION_CURRENT" = "$VERSION_AVAILABLE" ]; then
+                            get_yesno "'$(eval echo \"\$LABEL_INSTALL_${ITEM^^}\")' already installed. Re-install?"
 
-                        [ "$?" = 0 ] && "install_$DIALOG_RET"
-                    else                        
-                        get_yesno "Install '$(eval echo \"\$LABEL_INSTALL_${DIALOG_RET^^}\")' update?"
+                            [ "$?" = 0 ] && "install_$ITEM"
+                        else
+                            get_yesno "Install '$(eval echo \"\$LABEL_INSTALL_${ITEM^^}\")' update?"
 
-                        if [ "$?" = 0 ]; then
-                            show_wait
+                            if [ "$?" = 0 ]; then
+                                show_wait
 
-                            apt update "$NAME_PACKAGE" &>/dev/null
+                                apt update "$NAME_PACKAGE" &>/dev/null
+                            fi
                         fi
                     fi
+                else
+                    "install_$ITEM"
                 fi
-            else
-                get_yesno "Install '$(eval echo \"\$LABEL_INSTALL_${DIALOG_RET^^}\")'?"
-
-                [ "$?" = 0 ] && "install_$DIALOG_RET"
-            fi
+            done
         elif [ "$RET_CODE" = 3 ]; then
             show_help "$HELP_INSTALL_FEATURE"
         else
@@ -5327,12 +5337,14 @@ base_setup() {
 declare -r CONFIG_BASH="$HOME/.bashrc"
 declare -r TAG_MENU_INSTALL='menu_install'
 declare -r TAG_MENU_POSTFIX='menu_postfix'
+declare -r TAG_MENU_RSPAMD='menu_rspamd'
 declare -r TAG_MENU_ADDON='menu_addon'
 declare -r TAG_MENU_MISC='menu_misc'
 declare -r TAG_MENU_LOG='menu_log'
 declare -r TAG_MENU_SYNC_ALL='sync_all'
 declare -r LABEL_MENU_INSTALL='Install'
 declare -r LABEL_MENU_POSTFIX='Postfix'
+declare -r LABEL_MENU_RSPAMD='Rspamd'
 declare -r LABEL_MENU_ADDON='Addon'
 declare -r LABEL_MENU_MISC='Misc'
 declare -r LABEL_MENU_LOG='Log files'
@@ -5359,6 +5371,7 @@ while true; do
     MENU_MAIN=()
     MENU_MAIN+=("$TAG_MENU_INSTALL" "$LABEL_MENU_INSTALL")
     check_installed_postfix && MENU_MAIN+=("$TAG_MENU_POSTFIX" "$LABEL_MENU_POSTFIX")
+    check_installed_rspamd && MENU_MAIN+=("$TAG_MENU_RSPAMD" "$LABEL_MENU_RSPAMD")
     for TAG_ADDON in "${ADDON_CONFIG[@]}"; do
         if "check_installed_$TAG_ADDON"; then
             MENU_MAIN+=("$TAG_MENU_ADDON" "$LABEL_MENU_ADDON")
