@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.23.0 for Postfix
+# menu.sh V1.24.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,9 +16,8 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - for the install menu allow batch installation of multiple packages
-# - moved Rspamd submenu from Addons to main menu
-# - cosmetic changes
+# - for installations show output
+# - added option for tailing current logs
 # - bugfixes
 #
 ###################################################################################################
@@ -283,10 +282,8 @@ done
 declare -g -r POSTFIX_TLS_LABEL='TLS encryption'
 declare -g -r POSTFIX_TLS_CUSTOM=1
 
-POSTFIX_TLS+=('smtp_tls_CAfile=/etc/ssl/certs/ca-bundle.crt')
 POSTFIX_TLS+=('smtp_tls_security_level=may')
 POSTFIX_TLS+=('smtp_use_tls=yes')
-POSTFIX_TLS+=('smtpd_tls_CAfile=/etc/ssl/certs/ca-bundle.crt')
 POSTFIX_TLS+=('smtpd_tls_CApath=/etc/ssl/certs')
 POSTFIX_TLS+=('smtpd_tls_ask_ccert=yes')
 POSTFIX_TLS+=('smtpd_tls_ciphers=high')
@@ -562,9 +559,6 @@ declare -g -r CONFIG_RSPAMD_WHITELIST_ANTIVIRUS_FROM="$DIR_LIB_RSPAMD/whitelist_
 declare -g -r LABEL_CONFIG_RSPAMD_BLACKLIST_COUNTRY='Blacklist sender country'
 declare -g -r CONFIG_RSPAMD_BLACKLIST_COUNTRY="$DIR_LIB_RSPAMD/blacklist_sender_country"
 
-declare -g -r CONFIG_CLAMAV='clamav {'$'\n\t''max_size = 50000000;'$'\n\t''log_clean = true;'$'\n\t'"whitelist = \"$CONFIG_RSPAMD_WHITELIST_ANTIVIRUS_FROM\";"$'\n\t''scan_mime_parts = true;'$'\n\t''scan_text_mine = true;'$'\n\t''symbol = "CLAM_VIRUS";'$'\n\t''type = "clamav";'$'\n\t''action = "reject";'$'\n\t''servers = "127.0.0.1:3310";'$'\n''}'
-declare -g -r CONFIG_SOPHOSAV='sophos {'$'\n\t''max_size = 50000000;'$'\n\t''log_clean = true;'$'\n\t'"whitelist = \"$CONFIG_RSPAMD_WHITELIST_ANTIVIRUS_FROM\";"$'\n\t''scan_mime_parts = true;'$'\n\t''scan_text_mine = true;'$'\n\t''symbol = "SOPHOS_VIRUS";'$'\n\t''type = "sophos";'$'\n\t''action = "reject";'$'\n\t''servers = "127.0.0.1:4010";'$'\n\t''patterns {'$'\n\t\t'"JUST_EICAR = '^Eicar-Test-Signature$';"$'\n\t''}'$'\n''}'
-
 ###################################################################################################
 # Rspamd features
 declare -g -a RSPAMD_FEATURE
@@ -658,15 +652,21 @@ declare -g -r RSPAMD_OLETOOLS_LABEL='Oletools'
 declare -g -r RSPAMD_OLETOOLS_CHECK=1
 declare -g -r RSPAMD_OLETOOLS_CUSTOM=1
 
+declare -g -r CONFIG_OLETOOLS='oletools {'$'\n\t''log_clean = true;'$'\n\t''servers = "127.0.0.1:10050";'$'\n\t''cache_expire = 86400;'$'\n\t''scan_mime_parts = true;'$'\n''}'
+
 # ClamAV
 declare -g -r RSPAMD_CLAMAV_LABEL='ClamAV'
 declare -g -r RSPAMD_CLAMAV_CHECK=1
 declare -g -r RSPAMD_CLAMAV_CUSTOM=1
 
+declare -g -r CONFIG_CLAMAV='clamav {'$'\n\t''max_size = 50000000;'$'\n\t''log_clean = true;'$'\n\t'"whitelist = \"$CONFIG_RSPAMD_WHITELIST_ANTIVIRUS_FROM\";"$'\n\t''scan_mime_parts = true;'$'\n\t''scan_text_mine = true;'$'\n\t''symbol = "CLAM_VIRUS";'$'\n\t''type = "clamav";'$'\n\t''action = "reject";'$'\n\t''servers = "127.0.0.1:3310";'$'\n''}'
+
 # Sophos AV
 declare -g -r RSPAMD_SOPHOSAV_LABEL='Sophos AV'
 declare -g -r RSPAMD_SOPHOSAV_CHECK=1
 declare -g -r RSPAMD_SOPHOSAV_CUSTOM=1
+
+declare -g -r CONFIG_SOPHOSAV='sophos {'$'\n\t''max_size = 50000000;'$'\n\t''log_clean = true;'$'\n\t'"whitelist = \"$CONFIG_RSPAMD_WHITELIST_ANTIVIRUS_FROM\";"$'\n\t''scan_mime_parts = true;'$'\n\t''scan_text_mine = true;'$'\n\t''symbol = "SOPHOS_VIRUS";'$'\n\t''type = "sophos";'$'\n\t''action = "reject";'$'\n\t''servers = "127.0.0.1:4010";'$'\n\t''patterns {'$'\n\t\t'"JUST_EICAR = '^Eicar-Test-Signature$';"$'\n\t''}'$'\n''}'
 
 ###################################################################################################
 # Fail2ban configs
@@ -889,6 +889,15 @@ show_help() {
     show_info 'Help' "$1"
 }
 
+# show program output in dialog programbox
+# parameters:
+# $1 - dialog title
+# return values:
+# none
+show_output() {
+    "$DIALOG" --clear --backtitle "$TITLE_MAIN" --title "$1" --programbox 40 120
+}
+
 # get user input in dialog inputbox (IMPORTANT: function call needs to be preceeded by 'exec 3>&1' and followed by 'exec 3>&-')
 # parameters:
 # $1 - dialog title
@@ -1081,7 +1090,7 @@ manage_list() {
 # return values:
 # error code - 0 for entry present, 1 for missing
 check_crontab() {
-    crontab -l | grep -q "^$(echo "$1" | sed 's/\*/\\\*/g')$"
+    crontab -l 2>/dev/null | grep -q "^$(echo "$1" | sed 's/\*/\\\*/g')$"
 }
 
 # add crontab entry
@@ -1092,11 +1101,13 @@ check_crontab() {
 add_crontab() {
     declare CRONTAB
 
-    CRONTAB="$(crontab -l)"
+    if ! check_crontab "$1"; then
+        CRONTAB="$(crontab -l 2>/dev/null)"
 
-    [ -z "$CRONTAB" ] && CRONTAB="$1" || CRONTAB+=$'\n'"$1"
+        [ -z "$CRONTAB" ] && CRONTAB="$1" || CRONTAB+=$'\n'"$1"
 
-    echo "$CRONTAB" | crontab -
+        echo "$CRONTAB" | crontab -
+    fi
 }
 
 # delete crontab entry
@@ -1105,7 +1116,7 @@ add_crontab() {
 # return values:
 # none
 del_crontab() {
-    crontab -l | grep -v "^$(echo "$1" | sed 's/\*/\\\*/g')$" | crontab -
+    crontab -l 2>/dev/null | grep -v "^$(echo "$1" | sed 's/\*/\\\*/g')$" | crontab -
 }
 
 # check whether Postfix is installed
@@ -1359,7 +1370,8 @@ check_update_clamav() {
 # return values:
 # error code - 0 for enabled, 1 disabled
 tls_status() {
-    if [ -z "$(postconf 'smtp_tls_cert_file' 2>/dev/null | sed -E "s/^smtp_tls_cert_file = ?//")" ]             \
+    if ! [ -f "$FILE_DHPARAM" ]                                                                                 \
+        || [ -z "$(postconf 'smtp_tls_cert_file' 2>/dev/null | sed -E "s/^smtp_tls_cert_file = ?//")" ]         \
         || [ -z "$(postconf 'smtp_tls_key_file' 2>/dev/null | sed -E "s/^smtp_tls_cert_file = ?//")" ]          \
         || [ -z "$(postconf 'smtpd_tls_cert_file' 2>/dev/null | sed -E "s/^smtpd_tls_cert_file = ?//")" ]       \
         || [ -z "$(postconf 'smtpd_tls_key_file' 2>/dev/null | sed -E "s/^smtpd_tls_cert_file = ?//")" ]; then
@@ -1390,7 +1402,7 @@ tls_enable() {
 
         if [ "$RET_CODE" = 0 ]; then
             if ! [ -f "$FILE_DHPARAM" ]; then
-                "$DIALOG" --backtitle "$TITLE_MAIN" --title '' --infobox 'Generating 2048-bit Diffie-Hellman param file.'$'\n\n''This may take a longer...' 3 20
+                "$DIALOG" --backtitle "$TITLE_MAIN" --title '' --infobox 'Generating 2048-bit Diffie-Hellman param file.'$'\n\n''This may take a longer...' 5 50
 
                 openssl dhparam -out "$FILE_DHPARAM" 2048 &>/dev/null
             fi
@@ -1605,7 +1617,7 @@ pswlupdate_enable() {
     chmod 700 "$SCRIPT_PSWLUPDATE"
     "$SCRIPT_PSWLUPDATE"
 
-    check_crontab "$CRONTAB_PSWLUPDATE" || add_crontab "$CRONTAB_PSWLUPDATE"
+    add_crontab "$CRONTAB_PSWLUPDATE"
 
     postconf "postscreen_access_list=permit_mynetworks cidr:$CONFIG_POSTFIX_POSTSCREEN cidr:$POSTSCREEN_WHITELIST_SPF" 2>/dev/null
 }
@@ -3062,10 +3074,10 @@ razor_disable() {
 # return values:
 # error code - 0 for enabled, 1 for disabled
 oletools_status() {
-    if [ -f "$CONFIG_RSPAMD_EXTERNAL" ]                                                                                                                                                                                            \
-        && [ "$(sed -n '/^oletools {$/,/^}$/p' "$CONFIG_RSPAMD_EXTERNAL")" = 'oletools {'$'\n\t''log_clean = true;'$'\n\t''servers = "127.0.0.1:10050";'$'\n\t''cache_expire = 86400;'$'\n\t''scan_mime_parts = true;'$'\n''}' ]   \
-        && [ -f "$OLETOOLS_SCRIPT" ]                                                                                                                                                                                               \
-        && [ -f "$OLETOOLS_CONFIG" ]                                                                                                                                                                                               \
+    if [ -f "$CONFIG_RSPAMD_EXTERNAL" ]                                                             \
+        && [ "$(sed -n '/^oletools {$/,/^}$/p' "$CONFIG_RSPAMD_EXTERNAL")" = "$CONFIG_OLETOOLS" ]   \
+        && [ -f "$OLETOOLS_SCRIPT" ]                                                                \
+        && [ -f "$OLETOOLS_CONFIG" ]                                                                \
         && [ -f "$OLETOOLS_SERVICE" ]; then
         return 0
     else
@@ -3079,15 +3091,15 @@ oletools_status() {
 # return values:
 # error code - 0 for changes made, 1 for no changes made
 oletools_enable() {
-    if ! [ -f "$CONFIG_RSPAMD_EXTERNAL" ] || [ "$(sed -n '/^oletools {$/,/^}$/p' "$CONFIG_RSPAMD_EXTERNAL")" != 'oletools {'$'\n\t''log_clean = true;'$'\n\t''servers = "127.0.0.1:10050";'$'\n\t''cache_expire = 86400;'$'\n\t''scan_mime_parts = true;'$'\n''}' ]; then
-        echo $'\n''oletools {'$'\n\t''log_clean = true;'$'\n\t''servers = "127.0.0.1:10050";'$'\n\t''cache_expire = 86400;'$'\n\t''scan_mime_parts = true;'$'\n''}' >> "$CONFIG_RSPAMD_EXTERNAL"
+    if ! [ -f "$CONFIG_RSPAMD_EXTERNAL" ] || [ "$(sed -n '/^oletools {$/,/^}$/p' "$CONFIG_RSPAMD_EXTERNAL")" != "$CONFIG_OLETOOLS" ]; then
+        echo "$CONFIG_OLETOOLS" >> "$CONFIG_RSPAMD_EXTERNAL"
     fi
 
     groupadd "$OLETOOLS_USER"
     useradd -g "$OLETOOLS_USER" "$OLETOOLS_USER"
 
     wget https://raw.githubusercontent.com/HeinleinSupport/olefy/master/olefy.py -O "$OLETOOLS_SCRIPT" 2>/dev/null
-    wget https://raw.githubusercontent.com/HeinleinSupport/olefy/master/olefy.conf -O "$OLETOOLS_CONFIG" 2>/dev/null
+    wget https://raw.githubusercontent.com/HeinleinSupport/olefy/master/olefy.conf -O - 2>/dev/null | sed -E 's/(OLEFY_BINDADDRESS=127.0.0.1), ::1/\1/g' > "$OLETOOLS_CONFIG"
     wget https://raw.githubusercontent.com/HeinleinSupport/olefy/master/olefy.service -O "$OLETOOLS_SERVICE" 2>/dev/null
 
     systemctl daemon-reload
@@ -4142,19 +4154,74 @@ automatic_update() {
     toggle_setting 'automatic_update' 'Automatic update'
 }
 
+# select log action in dialog menu
+# parameters:
+# $1 - program log
+# return values:
+# none
+log_action() {
+    declare -r TAG_SEARCH='search'
+    declare -r TAG_TAIL='tail'
+    declare -r LABEL_SEARCH='Search logs'
+    declare -r LABEL_TAIL='Tail current log'
+    declare RET_CODE SEARCH_FILTER SEARCH_RESULT
+    declare -a MENU_LOGACTION
+
+    MENU_LOGACTION=()
+    MENU_LOGACTION+=("$TAG_SEARCH" "$LABEL_SEARCH")
+    MENU_LOGACTION+=("$TAG_TAIL" "$LABEL_TAIL")
+
+    while true; do
+        exec 3>&1
+        LOG_ACTION="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --no-tags --extra-button --extra-label 'Help' --title '' --menu '' 0 0 0 "${MENU_LOGACTION[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            if [ "$LOG_ACTION" = "$TAG_SEARCH" ]; then
+                exec 3>&1
+                SEARCH_FILTER="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --title 'Search logs' --ok-label 'Current log' --extra-button --extra-label 'All logs' --inputbox 'Enter search filter' 0 0 '' 2>&1 1>&3)"
+                RET_CODE="$?"
+                exec 3>&-
+
+                if ! [ -z "$SEARCH_FILTER" ]; then
+                    if [ "$RET_CODE" = 0 ] || [ "$RET_CODE" = 3 ]; then
+                        if [ "$RET_CODE" = 0 ]; then
+                            SEARCH_RESULT="$(grep "$SEARCH_FILTER" "$(eval echo \"\$LOG_${1^^}_DIR\")/current.log")"
+                        else
+                            SEARCH_RESULT="$(grep "$SEARCH_FILTER" -h "$(eval echo \"\$LOG_${1^^}_DIR\")"/*.log)"
+                        fi
+
+                        [ -z "$SEARCH_RESULT" ] && SEARCH_RESULT='No result'
+
+                        show_info 'Search results' "$SEARCH_RESULT"
+                    fi
+                fi
+            elif [ "$LOG_ACTION" = "$TAG_TAIL" ]; then
+                "$DIALOG" --clear --backtitle "$TITLE_MAIN" --title 'Tail current log' --tailbox "$(eval echo \"\$LOG_${1^^}_DIR\")/current.log" 40 120
+            fi
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_LOG"
+        else
+            break
+        fi
+    done
+}
+
 # install Postfix
 # parameters:
 # none
 # return values:
 # none
 install_postfix() {
-    show_wait
-    DEBIAN_FRONTEND=noninteractive apt-get -yq install postfix &>/dev/null
+    {
+        DEBIAN_FRONTEND=noninteractive apt-get -yq install postfix
 
-    postconf 'inet_protocols=ipv4'
-    postconf 'mynetworks=127.0.0.0/8'
+        postconf 'inet_protocols=ipv4'
+        postconf 'mynetworks=127.0.0.0/8'
 
-    rm -f /etc/postfix/makedefs.out &>/dev/null
+        rm -f /etc/postfix/makedefs.out
+    } 2>&1 | show_output 'Installing Postfix'
 }
 
 # install local DNS resolver
@@ -4179,12 +4246,14 @@ install_resolver() {
     HrvJxcC34fU72th66vT13thXabtmegd15PLfo4PfZOw/BKgIte8PAAA=
     '
 
-    show_wait
-    apt install -y bind9 &>/dev/null
+    {
+        apt install -y bind9
 
-    printf '%s' $PACKED_CONFIG | base64 -d | gunzip > "$CONFIG_RESOLVER"
-    mkdir -p /var/log/named
-    systemctl restart bind9 &>/dev/null
+        printf '%s' $PACKED_CONFIG | base64 -d | gunzip > "$CONFIG_RESOLVER"
+        mkdir -p /var/log/named
+        touch "$CONFIG_RESOLVER_FORWARD" "$CONFIG_RESOLVER_LOCAL"
+        systemctl restart bind9
+    } 2>&1 | show_output 'Installing local DNS resolver'
 }
 
 # install Postfwd
@@ -4195,23 +4264,23 @@ install_resolver() {
 install_postfwd() {
     declare -r POSTFWD_USER='postfwd'
 
-    show_wait
+    {
+        groupadd "$POSTFWD_USER"
+        useradd -g "$POSTFWD_USER" "$POSTFWD_USER"
 
-    groupadd "$POSTFWD_USER" &>/dev/null
-    useradd -g "$POSTFWD_USER" "$POSTFWD_USER" &>/dev/null
+        mkdir -p /usr/local/postfwd/sbin
+        wget "$INSTALL_POSTFWD_LINK" -O - > /usr/local/postfwd/sbin/postfwd
+        chmod +x /usr/local/postfwd/sbin/postfwd
+        wget https://raw.githubusercontent.com/postfwd/postfwd/master/bin/postfwd-script.sh -O - | sed "s/nobody/$POSTFWD_USER/" > /etc/init.d/postfwd
+        wget https://raw.githubusercontent.com/postfwd/postfwd/master/etc/postfwd.cf.sample -O - > /etc/postfwd.cf
+        chmod +x /etc/init.d/postfwd
 
-    mkdir -p /usr/local/postfwd/sbin
-    wget "$INSTALL_POSTFWD_LINK" -O - 2>/dev/null > /usr/local/postfwd/sbin/postfwd
-    chmod +x /usr/local/postfwd/sbin/postfwd
-    wget https://raw.githubusercontent.com/postfwd/postfwd/master/bin/postfwd-script.sh -O - 2>/dev/null | sed "s/nobody/$POSTFWD_USER/" > /etc/init.d/postfwd
-    wget https://raw.githubusercontent.com/postfwd/postfwd/master/etc/postfwd.cf.sample -O - 2>/dev/null > /etc/postfwd.cf
-    chmod +x /etc/init.d/postfwd
+        apt install -y libnet-server-perl libnet-dns-perl
 
-    apt install -y libnet-server-perl libnet-dns-perl &>/dev/null
-
-    systemctl daemon-reload &>/dev/null
-    systemctl start postfwd &>/dev/null
-    update-rc.d postfwd defaults
+        systemctl daemon-reload
+        systemctl start postfwd
+        update-rc.d postfwd defaults
+    } 2>&1 | show_output 'Installing Postfwd'
 }
 
 # install Spamassassin
@@ -4220,8 +4289,7 @@ install_postfwd() {
 # return values:
 # none
 install_spamassassin() {
-    show_wait
-    apt install -y geoip-bin geoip-database geoip-database-extra cpanminus libbsd-resource-perl libdbi-perl libencode-detect-perl libgeo-ip-perl liblwp-useragent-determined-perl libmail-dkim-perl libnet-cidr-perl libdigest-sha-perl libnet-patricia-perl postfix postfix-pcre sa-compile spamassassin spamc spf-tools-perl redis-server &>/dev/null
+    apt install -y geoip-bin geoip-database geoip-database-extra cpanminus libbsd-resource-perl libdbi-perl libencode-detect-perl libgeo-ip-perl liblwp-useragent-determined-perl libmail-dkim-perl libnet-cidr-perl libdigest-sha-perl libnet-patricia-perl postfix postfix-pcre sa-compile spamassassin spamc spf-tools-perl redis-server 2>&1 | show_output 'Installing Spamassassin'
 }
 
 # install Rspamd
@@ -4232,20 +4300,21 @@ install_spamassassin() {
 install_rspamd() {
     declare CODENAME
 
-    show_wait
-    apt install -y lsb-release &>/dev/null
-    CODENAME="$(lsb_release -c -s)"
-    wget https://rspamd.com/apt-stable/gpg.key -O - 2>/dev/null | apt-key add - &>/dev/null
-    echo "deb [arch=amd64] http://rspamd.com/apt-stable/ $CODENAME main" > /etc/apt/sources.list.d/rspamd.list
-    echo "deb-src [arch=amd64] http://rspamd.com/apt-stable/ $CODENAME main" >> /etc/apt/sources.list.d/rspamd.list
-    apt update &>/dev/null
-    apt install -y redis-server rspamd &>/dev/null
-    echo 'servers = "127.0.0.1";' > "$CONFIG_RSPAMD_REDIS"
-    echo 'bind_socket = "127.0.0.1:11333";' > "$CONFIG_RSPAMD_NORMAL"
-    echo 'bind_socket = "127.0.0.1:11334";'$'\n''secure_ip = "127.0.0.1";' > "$CONFIG_RSPAMD_CONTROLLER"
-    echo 'bind_socket = "127.0.0.1:11332";'$'\n''upstream {'$'\n\t''local {'$'\n\t\t''hosts = "127.0.0.1";'$'\n\t\t''default = true;'$'\n\t''}'$'\n''}' > "$CONFIG_RSPAMD_PROXY"
-    echo 'bind_socket = "127.0.0.1:11335";'$'\n''allow_update [ "127.0.0.1" ]' > "$CONFIG_RSPAMD_FUZZY"
-    rspamd_restart
+    {
+        apt install -y lsb-release
+        CODENAME="$(lsb_release -c -s)"
+        wget https://rspamd.com/apt-stable/gpg.key -O - | apt-key add -
+        echo "deb [arch=amd64] http://rspamd.com/apt-stable/ $CODENAME main" > /etc/apt/sources.list.d/rspamd.list
+        echo "deb-src [arch=amd64] http://rspamd.com/apt-stable/ $CODENAME main" >> /etc/apt/sources.list.d/rspamd.list
+        apt update
+        apt install -y redis-server rspamd
+        echo 'servers = "127.0.0.1";' > "$CONFIG_RSPAMD_REDIS"
+        echo 'bind_socket = "127.0.0.1:11333";' > "$CONFIG_RSPAMD_NORMAL"
+        echo 'bind_socket = "127.0.0.1:11334";'$'\n''secure_ip = "127.0.0.1";' > "$CONFIG_RSPAMD_CONTROLLER"
+        echo 'bind_socket = "127.0.0.1:11332";'$'\n''upstream {'$'\n\t''local {'$'\n\t\t''hosts = "127.0.0.1";'$'\n\t\t''default = true;'$'\n\t''}'$'\n''}' > "$CONFIG_RSPAMD_PROXY"
+        echo 'bind_socket = "127.0.0.1:11335";'$'\n''allow_update [ "127.0.0.1" ]' > "$CONFIG_RSPAMD_FUZZY"
+        rspamd_restart
+    } 2>&1 | show_output 'Installing Rspamd'
 }
 
 # install Pyzor
@@ -4254,8 +4323,7 @@ install_rspamd() {
 # return values:
 # none
 install_pyzor() {
-    show_wait
-    apt install -y pyzor &>/dev/null
+    apt install -y pyzor 2>&1 | show_output 'Installing Pyzor'
 }
 
 # install Razor
@@ -4264,8 +4332,7 @@ install_pyzor() {
 # return values:
 # none
 install_razor() {
-    show_wait
-    apt install -y razor &>/dev/null
+    apt install -y razor 2>&1 | show_output 'Installing Razor'
 }
 
 # install Oletools
@@ -4274,10 +4341,11 @@ install_razor() {
 # return values:
 # none
 install_oletools() {
-    show_wait
-    pip3 install -U https://github.com/decalage2/oletools/archive/master.zip &>/dev/null
-    pip3 install python-magic &>/dev/null
-    echo 'OLEFY_BINDADDRESS=127.0.0.1' > /etc/olefy.conf
+    {
+        pip3 install -U https://github.com/decalage2/oletools/archive/master.zip
+        pip3 install python-magic
+        echo 'OLEFY_BINDADDRESS=127.0.0.1' > /etc/olefy.conf
+    } 2>&1 | show_output 'Installing Oletools'
 }
 
 # install ClamAV
@@ -4306,10 +4374,11 @@ install_clamav() {
     aexAoWLGUJL35WKyC4yKvOKPim857r//AAukEgEuBwAA
     '
 
-    show_wait
-    apt install -y clamav clamav-daemon clamav-unofficial-sigs &>/dev/null
-    printf '%s' $PACKED_CONFIG | base64 -d | gunzip > /etc/clamav/clamd.conf
-    systemctl clamav-daemon restart &>/dev/null
+    {
+        apt install -y clamav clamav-daemon clamav-unofficial-sigs
+        printf '%s' $PACKED_CONFIG | base64 -d | gunzip > /etc/clamav/clamd.conf
+        systemctl clamav-daemon restart
+    } 2>&1 | show_output 'Installing ClamAV'
 }
 
 # install Sophos AV
@@ -4390,7 +4459,6 @@ install_sophosav() {
 
         if ! [ -z "$INSTALLER_INTERFACE" ]; then
             show_wait
-            apt install -y file &>/dev/null
 
             mkdir -p "$DIR_TMP"
 
@@ -4398,24 +4466,27 @@ install_sophosav() {
             clear
             "$DIR_TMP"/sophos-av/install.sh
 
-            show_wait
-            ln -s /opt/sophos-av/lib64/libsavi.so.3 /usr/local/lib/libsavi.so.3 &>/dev/null
-            ln -s /opt/sophos-av/lib64/libssp.so.0 /usr/local/lib/libssp.so.0 &>/dev/null
+            {
+                apt install -y file
 
-            tar -xf "$INSTALLER_INTERFACE" -C "$DIR_TMP"
-            "$DIR_TMP"/savdi-install/savdi_install.sh &>/dev/null
-            cp "$DIR_TMP"/savdi-install/savdid /usr/local/bin/
+                ln -s /opt/sophos-av/lib64/libsavi.so.3 /usr/local/lib/libsavi.so.3
+                ln -s /opt/sophos-av/lib64/libssp.so.0 /usr/local/lib/libssp.so.0
 
-            rm -rf "$DIR_TMP"
+                tar -xf "$INSTALLER_INTERFACE" -C "$DIR_TMP"
+                "$DIR_TMP"/savdi-install/savdi_install.sh
+                cp "$DIR_TMP"/savdi-install/savdid /usr/local/bin/
 
-            printf '%s' $PACKED_CONFIG | base64 -d | gunzip > /etc/savdid.conf
-            printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > /etc/systemd/system/savdid.service
+                rm -rf "$DIR_TMP"
 
-            systemctl daemon-reload
-            systemctl enable sav-update.service
-            systemctl start sav-update.service
-            systemctl enable savdid
-            systemctl start savdid
+                printf '%s' $PACKED_CONFIG | base64 -d | gunzip > /etc/savdid.conf
+                printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > /etc/systemd/system/savdid.service
+
+                systemctl daemon-reload
+                systemctl enable sav-update.service
+                systemctl start sav-update.service
+                systemctl enable savdid
+                systemctl start savdid
+            } 2>&1 | show_output 'Installing Sophos AV'
         fi
     fi
 }
@@ -4426,9 +4497,10 @@ install_sophosav() {
 # return values:
 # none
 install_fail2ban() {
-    show_wait
-    rm -f /etc/apt/preferences.d/apt-listbugs &>/dev/null
-    apt install -y fail2ban &>/dev/null
+    {
+        rm -f /etc/apt/preferences.d/apt-listbugs
+        apt install -y fail2ban
+    } 2>&1 | show_output 'Installing Fail2ban'
 }
 
 # install OpenDKIM
@@ -4437,8 +4509,7 @@ install_fail2ban() {
 # return values:
 # none
 install_dkim() {
-    show_wait
-    apt install -y opendkim &>/dev/null
+    apt install -y opendkim 2>&1 | show_output 'Installing OpenDKIM'
 }
 
 # install SPF-check
@@ -4447,8 +4518,7 @@ install_dkim() {
 # return values:
 # none
 install_spf() {
-    show_wait
-    apt install -y postfix-policyd-spf-python &>/dev/null
+    apt install -y postfix-policyd-spf-python 2>&1 | show_output 'Installing SPF-check'
 }
 
 # install Let's Encrypt Certificate
@@ -4466,24 +4536,23 @@ install_acme() {
     SIR1AL1vT3i5AAAA
     '
 
-    show_wait
-    apt install -y socat &>/dev/null
-    wget -O - https://get.acme.sh 2>/dev/null | sh &>/dev/null
-    /root/.acme.sh/acme.sh --uninstall-cronjob &>/dev/null
-    iptables -I INPUT 1 -p tcp -m tcp --dport 80 -j ACCEPT
-    /root/.acme.sh/acme.sh --issue --standalone -d "$HOST_NAME" &>/dev/null
-    iptables -D INPUT -p tcp -m tcp --dport 80 -j ACCEPT
+    {
+        apt install -y socat
+        wget -O - https://get.acme.sh 2>/dev/null | sh
+        /root/.acme.sh/acme.sh --uninstall-cronjob
+        iptables -I INPUT 1 -p tcp -m tcp --dport 80 -j ACCEPT
+        /root/.acme.sh/acme.sh --issue --standalone -d "$HOST_NAME"
+        iptables -D INPUT -p tcp -m tcp --dport 80 -j ACCEPT
 
-    if [ -f "$DIR_CERT/$HOST_NAME.cer" ]; then
-        cp -f "$DIR_CERT/$HOST_NAME.cer" "$DIR_SSL/$HOST_NAME.cer"
-        cp -f "$DIR_CERT/$HOST_NAME.key" "$DIR_SSL/$HOST_NAME.key"
-        cp -f "$DIR_CERT/fullchain.cer" "$DIR_SSL/fullchain.cer"
-        printf '%s' $PACKED_SCRIPT | base64 -d | gunzip | sed "s/__HOST_NAME__/$HOST_NAME/g" > /root/.acme.sh/get_cert.sh
-        chmod +x /root/.acme.sh/get_cert.sh
-        add_crontab '@daily /root/.acme.sh/get_cert.sh > /dev/null'
-    else
-        show_info 'Error' "Error getting Let's Encrypt certificate."
-    fi
+        if [ -f "$DIR_CERT/$HOST_NAME.cer" ]; then
+            cp -f "$DIR_CERT/$HOST_NAME.cer" "$DIR_SSL/$HOST_NAME.cer"
+            cp -f "$DIR_CERT/$HOST_NAME.key" "$DIR_SSL/$HOST_NAME.key"
+            cp -f "$DIR_CERT/fullchain.cer" "$DIR_SSL/fullchain.cer"
+            printf '%s' $PACKED_SCRIPT | base64 -d | gunzip | sed "s/__HOST_NAME__/$HOST_NAME/g" > /root/.acme.sh/get_cert.sh
+            chmod +x /root/.acme.sh/get_cert.sh
+            add_crontab '@daily /root/.acme.sh/get_cert.sh > /dev/null'
+        fi
+    } 2>&1 | show_output "Installing Let's Encrypt certificate"
 }
 
 # install Logwatch
@@ -4492,8 +4561,7 @@ install_acme() {
 # return values:
 # none
 install_logwatch() {
-    show_wait
-    apt install -y logwatch &>/dev/null
+    apt install -y logwatch 2>&1 | show_output 'Installing Logwatch'
 }
 
 # install log-manager
@@ -4671,35 +4739,35 @@ menu_install() {
         exec 3>&-
 
         if [ "$RET_CODE" = 0 ] && ! [ -z "$DIALOG_RET" ]; then
-            for ITEM in $DIALOG_RET; do
-                if "check_installed_$ITEM"; then
-                    NAME_PACKAGE="$(eval echo \"\$INSTALL_${ITEM^^}_PACKAGE\")"
+            for FEATURE in $DIALOG_RET; do
+                if "check_installed_$FEATURE"; then
+                    NAME_PACKAGE="$(eval echo \"\$INSTALL_${FEATURE^^}_PACKAGE\")"
 
                     if [ -z "$NAME_PACKAGE" ]; then
-                        get_yesno "'$(eval echo \"\$LABEL_INSTALL_${ITEM^^}\")' already installed. Re-install?"
+                        get_yesno "'$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\")' already installed. Re-install?"
 
-                        [ "$?" = 0 ] && "install_$ITEM"
+                        [ "$?" = 0 ] && "install_$FEATURE"
                     else
                         PACKAGE_INFO="$(apt-cache policy "$NAME_PACKAGE")"
                         VERSION_CURRENT="$(echo "$PACKAGE_INFO" | sed -n '2p' | sed -E 's/^.+\s+//')"
                         VERSION_AVAILABLE="$(echo "$PACKAGE_INFO" | sed -n '3p' | sed -E 's/^.+\s+//')"
 
                         if [ "$VERSION_CURRENT" = "$VERSION_AVAILABLE" ]; then
-                            get_yesno "'$(eval echo \"\$LABEL_INSTALL_${ITEM^^}\")' already installed. Re-install?"
+                            get_yesno "'$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\")' already installed. Re-install?"
 
-                            [ "$?" = 0 ] && "install_$ITEM"
+                            [ "$?" = 0 ] && "install_$FEATURE"
                         else
-                            get_yesno "Install '$(eval echo \"\$LABEL_INSTALL_${ITEM^^}\")' update?"
+                            get_yesno "Install '$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\")' update?"
 
                             if [ "$?" = 0 ]; then
                                 show_wait
 
-                                apt update "$NAME_PACKAGE" &>/dev/null
+                                apt update "$NAME_PACKAGE" 2>&1 | show_output "Updating $(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\")"
                             fi
                         fi
                     fi
                 else
-                    "install_$ITEM"
+                    "install_$FEATURE"
                 fi
             done
         elif [ "$RET_CODE" = 3 ]; then
@@ -5085,7 +5153,7 @@ menu_log() {
 
     MENU_LOG=()
     for PROGRAM_LOG in "${PROGRAM_LOGS[@]}"; do
-        if [ "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_CHECK\")" != 1 ] || check_installed_$PROGRAM_LOG; then
+        if [ "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_CHECK\")" != 1 ] || "check_installed_$PROGRAM_LOG"; then
             MENU_LOG+=("$PROGRAM_LOG" "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_LABEL\")")
         fi
     done
@@ -5097,24 +5165,7 @@ menu_log() {
         exec 3>&-
 
         if [ "$RET_CODE" = 0 ]; then
-            exec 3>&1
-            SEARCH_FILTER="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --title 'Search logs' --ok-label 'Current log' --extra-button --extra-label 'All logs' --inputbox 'Enter search filter' 0 0 '' 2>&1 1>&3)"
-            RET_CODE="$?"
-            exec 3>&-
-
-            if ! [ -z "$SEARCH_FILTER" ]; then
-                if [ "$RET_CODE" = 0 ] || [ "$RET_CODE" = 3 ]; then
-                    if [ "$RET_CODE" = 0 ]; then
-                        SEARCH_RESULT="$(grep "$SEARCH_FILTER" "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_DIR\")/current.log")"
-                    else
-                        SEARCH_RESULT="$(grep "$SEARCH_FILTER" -h "$(eval echo \"\$LOG_${PROGRAM_LOG^^}_DIR\")"/*.log)"
-                    fi
-
-                    [ -z "$SEARCH_RESULT" ] && SEARCH_RESULT='No result'
-
-                    show_info 'Search results' "$SEARCH_RESULT"
-                fi
-            fi
+            log_action "$PROGRAM_LOG"
         elif [ "$RET_CODE" = 3 ]; then
             show_help "$HELP_LOG"
         else
