@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.24.0 for Postfix
+# menu.sh V1.25.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,9 +16,8 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - for installations show output
-# - added option for tailing current logs
-# - bugfixes
+# - added default configuration for Spamassassin
+# - added Spamassassin integration as Rspamd feature
 #
 ###################################################################################################
 
@@ -78,6 +77,7 @@ DEPENDENCY+=('gawk' 'gawk')
 DEPENDENCY+=('gcc' 'gcc')
 DEPENDENCY+=('pip3' 'python3-pip python3-setuptools python3-wheel')
 DEPENDENCY+=('wget' 'wget')
+DEPENDENCY+=('vim' 'vim')
 
 ###################################################################################################
 # Install features
@@ -480,10 +480,14 @@ declare -g -a SPAMASSASSIN_CONFIG
 
 SPAMASSASSIN_CONFIG=()
 SPAMASSASSIN_CONFIG+=('local')
+SPAMASSASSIN_CONFIG+=('whitelist')
 
 # Main
 declare -g -r LABEL_CONFIG_SPAMASSASSIN_LOCAL='Main'
 declare -g -r CONFIG_SPAMASSASSIN_LOCAL="$DIR_CONFIG_SPAMASSASSIN/local.cf"
+
+# Whitelist
+declare -g -r LABEL_CONFIG_SPAMASSASSIN_WHITELIST='Whitelist'
 declare -g -r CONFIG_SPAMASSASSIN_WHITELIST="$DIR_CONFIG_SPAMASSASSIN/whitelist_from.cf"
 
 ###################################################################################################
@@ -570,6 +574,7 @@ RSPAMD_FEATURE+=('bwlist')
 RSPAMD_FEATURE+=('bayes')
 RSPAMD_FEATURE+=('headers')
 RSPAMD_FEATURE+=('history')
+RSPAMD_FEATURE+=('spamd')
 RSPAMD_FEATURE+=('sarules')
 RSPAMD_FEATURE+=('rulesupdate')
 RSPAMD_FEATURE+=('reputation')
@@ -614,6 +619,122 @@ RSPAMD_HEADERS+=('extended_spam_headers = true;' "$CONFIG_RSPAMD_HEADERS")
 declare -g -r RSPAMD_HISTORY_LABEL='Detailed history'
 
 RSPAMD_HISTORY+=('servers = 127.0.0.1:6379;' "$CONFIG_RSPAMD_HISTORY")
+
+# Spamassassin rules
+declare -g -r RSPAMD_SPAMD_LABEL='Spamassassin integration'
+declare -g -r RSPAMD_SPAMD_CHECK=1
+declare -g -r RSPAMD_SPAMD_CUSTOM=1
+
+declare -g -r CONFIG_SPAMD='
+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
+wq7+x9d/fP3/M2co1s+mAAA=
+'
 
 # Spamassassin rules
 declare -g -r RSPAMD_SARULES_LABEL='Heinlein SA rules'
@@ -1153,6 +1274,15 @@ check_installed_postfwd() {
 # error code - 0 for installed, 1 for not installed
 check_installed_spamassassin() {
     which spamassassin &>/dev/null && return 0 || return 1
+}
+
+# check whether Spamassassin is installed
+# parameters:
+# none
+# return values:
+# error code - 0 for installed, 1 for not installed
+check_installed_spamd() {
+    check_installed_spamassassin
 }
 
 # check whether Rspamd is installed
@@ -2735,7 +2865,43 @@ bwlist_disable() {
     sed -i '/^BLACKLIST_COUNTRY {$/,/^}$/d' "$CONFIG_RSPAMD_MULTIMAP"
 }
 
-# check Rspamd Spamassassin rules status
+# check Spamassassin integration status
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 for disabled
+spamd_status() {
+    if [ -f "$CONFIG_RSPAMD_EXTERNAL" ]                                                                                                             \
+        && [ "$(sed -n '/^spamassassin {$/,/^}$/p' "$CONFIG_RSPAMD_EXTERNAL")" = "$(printf '%s' $CONFIG_SPAMD | base64 -d | gunzip)" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# enable Spamassassin integration
+# parameters:
+# none
+# return values:
+# error code - 0 for changes made, 1 for no changes made
+spamd_enable() {
+    declare -r CFG_SPAMD="$(printf '%s' $CONFIG_SPAMD | base64 -d | gunzip)"
+
+    if ! [ -f "$CONFIG_RSPAMD_EXTERNAL" ] || [ "$(sed -n '/^spamassassin {$/,/^}$/p' "$CONFIG_RSPAMD_EXTERNAL")" != "$CFG_SPAMD" ]; then
+        echo "$CFG_SPAMD" >> "$CONFIG_RSPAMD_EXTERNAL"
+    fi
+}
+
+# disable Spamassassin integration
+# parameters:
+# none
+# return values:
+# none
+spamd_disable() {
+    sed -i '/^spamassassin {$/,/^}$/d' "$CONFIG_RSPAMD_EXTERNAL"
+}
+
+# check Spamassassin rules status
 # parameters:
 # none
 # return values:
@@ -2744,7 +2910,7 @@ sarules_status() {
     [ -f "$FILE_RULES" ] && return 0 || return 1
 }
 
-# enable Rspamd Spamassassin rules
+# enable Spamassassin rules
 # parameters:
 # none
 # return values:
@@ -2774,7 +2940,7 @@ sarules_enable() {
     return 0
 }
 
-# disable Rspamd Spamassassin rules
+# disable Spamassassin rules
 # parameters:
 # none
 # return values:
@@ -2783,7 +2949,7 @@ sarules_disable() {
     rm -f "$FILE_RULES"
 }
 
-# check Rspamd Spamassassin rules update status
+# check Spamassassin rules update status
 # parameters:
 # none
 # return values:
@@ -2792,7 +2958,7 @@ rulesupdate_status() {
     [ -f "$CRON_RULES" ] && return 0 || return 1
 }
 
-# enable Rspamd Spamassassin rules update
+# enable Spamassassin rules update
 # parameters:
 # none
 # return values:
@@ -2823,7 +2989,7 @@ rulesupdate_enable() {
     "$CRON_RULES"
 }
 
-# disable Rspamd Spamassassin rules update
+# disable Spamassassin rules update
 # parameters:
 # none
 # return values:
@@ -4289,7 +4455,146 @@ install_postfwd() {
 # return values:
 # none
 install_spamassassin() {
-    apt install -y geoip-bin geoip-database geoip-database-extra cpanminus libbsd-resource-perl libdbi-perl libencode-detect-perl libgeo-ip-perl liblwp-useragent-determined-perl libmail-dkim-perl libnet-cidr-perl libdigest-sha-perl libnet-patricia-perl postfix postfix-pcre sa-compile spamassassin spamc spf-tools-perl redis-server 2>&1 | show_output 'Installing Spamassassin'
+    declare -r PACKED_CONFIG='
+    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
+    nqZP2brq06u9/PFttX3K19r3nEJ2Cf6mb7r12PtuzZtV27I4u8/XZ2/clc1blW/WpXF6St+7WuZF
+    3bDw4lW/viFbL/PHX6OiE8PabNdV8cOI6NyVx42YvYjW3Kh9Se10J7XeQK2AvqO2IL2GE76kD0jd
+    nvK35Vlp/P7fxtkHy/+Jk5+J+fPa/+n4H896y6x8KPL7TJXA7s+WRvVcbLZPzwbV6+sP46HpZG2Z
+    yl2adaHrIuyybX38rw82au0Yu2+aF2VlbPdv7c1u6Pt4NtL1id0gfFgphRmEcXL8nPwi27nOijKH
+    NVVs108le6t3pz7SPO0bXl2zegrb09iAqBrpW5Cn5v22zJgOU/rTP87a7qU1/VoZ2fe8rMpLF/48
+    Tdbl9r5WetuN1PEKN9IvTqP8aZ1W2yLr3W+WP4Sb5OD97F/3H+D7nzP4PZnD74xO/H35nD5Wb48r
+    GHql++4bp5af4eMqe8r+2pZp9Zdw4apI1y/ZWvhuAn89ltv14//+z3P+9JLl1U8MzkiiapH8Vx//
+    dX+W916zKjX2o9H4/Q/6afnb3/Q613zPVCp9T7X28bAC2jqgMZZ6BXT12Khf6foV9nyU58tvn9Py
+    edTLv9O/l+vyfmXMkM8K4M5t/bgUbB9ZkT/0a6YPe0+/NrXmI/PZt3R1yXYmUt/y4e8i8vePvepx
+    lT6V+vuhgd3Oq73ObbxjoeO+c8teT9uB+fc+u9B/Tdd5tVV7Lt+g6bmISD2X75d7Ll8Xen7Cdz1C
+    AtWomjr9LKVvK79uYG39qEdwwg9BulEzggMBvT/huy/dS3t/wndfui70/hfu6cZqky4bW4Zf386H
+    gz5Ea73u/SPOvldWWvU2L2SVrp+2EAWVRrY2lpmxXjWzlPg3pk9fNHdNf5bQJ10Fj0kD0F8xwqNW
+    avQMm8xDXjxsczAy7h/72Pxm7sTosLkYm7WeozE8z7ZxtNDPzLc5jZC5Xe1cbrpNHstZj+jfnmsa
+    7mhXEClztP/N/0lAMF+Za3sFl66+o0IVYWp+hcGcGBVEhfcr+n9p2FTGW1Y8bgpwcg/Zpbhc5nk1
+    LbI/SrxdZXH+Co5E81X/7fX/AFKc2bHDRAAA
+    '
+    declare -r PACKED_DEFAULT='
+    H4sIAJTW8V4AA11TXWvbQBB816/YOg9pwZITaF4Cpri20xpSO8SBUOjLWXe2Lj7difuwq3+fWVmm
+    TkEgpNudnZmdu6KRiuVIqq1IJo5CI2oRAh5tsyuaJVsKSw/aSiPaDH9eJ8/LxfLHPTVGiaDIKyHp
+    eT6Z/ZoX3Cxpo7bOK0pA2BXoeKkUPmvR4oSCKpPXsSWvwz4UjLjYUuvS9bmFQhuiAs7nnhMBjt4U
+    GKkvQ4qVovly8v1xPgNYjNyhA2CsiwBQsqCFBYCQQ1JWbAxmnmi1qAsJ9feoPg0po7ksOgsvgvIH
+    XSrUTSthd4qio8HtgF8fMJ3tgcI/7gdtdbzPeo7jW5a4aqJ2llmuFVth+35W1jiMZEh3KirYMMpl
+    /w3SJFJ0tYi6FMa0JKSESoZdA2TSc2btqKTGs/17JlM7qcyQgmPjS4GDZD7Rb5fIKiUhBhC12ENM
+    gvl5Xou/eVlpI73qxrKjsJhVC9vGijErvcM6sQVouBsCIFmD1fAGaW/dkY6ViOd9StdFIFs9vSxW
+    y/V4kOcl8hJVziwDRurm8NVZiPpv+h1+QJC3oj57/SfLf9KocrXqQipHlAfQ12bAVjxpuKkNr+y1
+    y1uoXDKy7z0icop0DPS0mLEeLv3WJ4+d62KVJ3IeABej+x2IjTsozh67Au8CY8BUxu3igHBFFs6N
+    nPkV8PxRB3UKLEeCQul1E+mojemsRX/XC6hQpdhTle5oiww0HxaP8/FgdBB+5JM9aS4aLTu5a6zF
+    IqFk1EEZcttTd3a1XEzn7DMfns5u77qOqXf2zW363suVbjD75iLaTLhENaG8K/yQvtRILJBv0MWF
+    uQ7kE3LAF0KA2K6KKN2IgJs5fV4txzfZOwSW0ItoBAAA
+    '
+    declare -r PACKED_WHITELIST='
+    H4sIAOLW8V4AAz3LSwrDMAwE0L1PIci6iuWCky57kuDGamrqD/hDrl+7hSJmM280QTCxGQ/ny1X2
+    rlQXDzHBPRb38DzUHGyF+Pv2zClA5LqneOkpzY8f3HvbSgqBM1oWouZWKtutL8+U3wVoUUgaJcqZ
+    FJDE780r0G3A+hMNdJVIq8SFkJQWHziaE0qiAAAA
+    '
+    {
+        apt install -y geoip-bin geoip-database geoip-database-extra cpanminus libbsd-resource-perl libdbi-perl libencode-detect-perl libgeo-ip-perl liblwp-useragent-determined-perl libmail-dkim-perl libnet-cidr-perl libdigest-sha-perl libnet-patricia-perl postfix postfix-pcre sa-compile spamassassin spamc spf-tools-perl redis-server
+
+        grep -q '^spamd:' /etc/group || addgroup spamd
+        grep -q '^spamd:' /etc/passwd || adduser --system --disabled-login --ingroup spamd spamd
+
+        [ -d /home/spamd/.spamassassin ] || mkdir /home/spamd/.spamassassin
+        [ -d /home/spamd/bayes_db ] || mkdir /home/spamd/bayes_db
+
+        chown spamd:spamd -R /home/spamd
+
+        [ -d "$DIR_CONFIG_SPAMASSASSIN" ] || mkdir "$DIR_CONFIG_SPAMASSASSIN"
+
+        wget http://svn.apache.org/repos/asf/spamassassin/trunk/masses/plugins/HitFreqsRuleTiming.pm -O "$DIR_CONFIG_SPAMASSASSIN"/HitFreqsRuleTiming.pl
+        wget https://mailfud.org/iXhash2/iXhash2-2.05.tar.gz -O - | tar -O -xz iXhash2-2.05/iXhash2.pm > "$DIR_CONFIG_SPAMASSASSIN"/iXhash2.pm
+
+        printf '%s' $PACKED_CONFIG | base64 -d | gunzip > "$CONFIG_SPAMASSASSIN_LOCAL"
+        printf '%s' $PACKED_DEFAULT | base64 -d | gunzip > /etc/default/spamassassin
+        printf '%s' $PACKED_WHITELIST | base64 -d | gunzip > "$CONFIG_SPAMASSASSIN_WHITELIST"
+
+        if [ -f /etc/spamassassin/v320.pre ]; then
+            sed -i -E 's/^# (loadplugin Mail::SpamAssassin::Plugin::Shortcircuit)/\1/' /etc/spamassassin/v320.pre
+            sed -i -E 's/^# (loadplugin Mail::SpamAssassin::Plugin::Rule2XSBody)/\1/' /etc/spamassassin/v320.pre
+        else
+            echo 'loadplugin Mail::SpamAssassin::Plugin::Shortcircuit'$'\n''loadplugin Mail::SpamAssassin::Plugin::Rule2XSBody' > /etc/spamassassin/v320.pre
+        fi
+
+        if [ -f /etc/spamassassin/v310.pre ]; then
+            sed -i -E 's/^#(loadplugin Mail::SpamAssassin::Plugin::AWL)/\1/' /etc/spamassassin/v310.pre
+            sed -i -E 's/^#(loadplugin Mail::SpamAssassin::Plugin::TextCat)/\1/' /etc/spamassassin/v310.pre
+        else
+            echo 'loadplugin Mail::SpamAssassin::Plugin::AWL'$'\n''loadplugin Mail::SpamAssassin::Plugin::TextCat' > /etc/spamassassin/v310.pre
+        fi
+
+        echo 'loadplugin Mail::SpamAssassin::Plugin::iXhash2 /etc/spamassassin/iXhash2.pm' >  /etc/spamassassin/local.pre
+
+        [ -f '/etc/cron.daily/spamassassin' ] && rm -f /etc/cron.daily/spamassassin
+
+        wget https://www.pccc.com/downloads/SpamAssassin/contrib/KAM.cf -O /etc/spamassassin/KAM.cf
+
+        echo | cpan Digest::SHA1
+
+        spamassassin_restart
+    } 2>&1 | show_output 'Installing Spamassassin'
 }
 
 # install Rspamd
@@ -4298,21 +4603,40 @@ install_spamassassin() {
 # return values:
 # none
 install_rspamd() {
+    declare -r PACKED_PATCH='
+    H4sIABhd814AA61T246bMBB9br5ihGQFYzCYJUlLhTZf0Jd9qbSXyAkOsdYxkW2q7d/XsImyodqb
+    tJaxEeM5c87xkCQJpJ01qd1xI1JjD3xfp6rjSq77bWU3XGthbNpHuLV+Sk195Fue5VmSzZO8AMbK
+    q0XJGC2K2WL+PWdzID6aTQghXwNfFGUxo+xHUWT5YnaCXy4hYXMWsysgw57BcjmB01Dthiuwf/fr
+    Vtn/PvuCvnxrxDmybQ1YkBp2gtfClM2eu80uDG4f7sydvicBhrqdJPBiyC1YZ6Ru6FbqOrQxTG88
+    cgk0ghRmNJticDuhL7NOJA7cOWH06sgRKgjCIZ1GPwGHKLlGtZ+IohqHPR6iGQ7GWGcpHuDIprHd
+    umczqhBDgPIAT8g7Gn6jpOfhV8ddZ0tANySGocZJELkk8aqgN6BQFR7F9XY5YZ2twtsHpO4JplEw
+    LvFJnczrhBFJ33Kdk4rWYt01+9B0StBfMThuH71q5NkNLQo9Y1BSC0/XTmMYDqq2WR2M2Mqn+AUX
+    fHkdQtfvdsjIkk+3CI1GCDQazEMV9jEc8s61SnCjUUWjP/73kq1/fba6f/yZYGzNGf9jHfSx9HOO
+    Dfw6zuvN+gdulRhrgwQAAA==
+    '
     declare CODENAME
 
     {
         apt install -y lsb-release
+
         CODENAME="$(lsb_release -c -s)"
+
         wget https://rspamd.com/apt-stable/gpg.key -O - | apt-key add -
+
         echo "deb [arch=amd64] http://rspamd.com/apt-stable/ $CODENAME main" > /etc/apt/sources.list.d/rspamd.list
         echo "deb-src [arch=amd64] http://rspamd.com/apt-stable/ $CODENAME main" >> /etc/apt/sources.list.d/rspamd.list
+
         apt update
         apt install -y redis-server rspamd
+
         echo 'servers = "127.0.0.1";' > "$CONFIG_RSPAMD_REDIS"
         echo 'bind_socket = "127.0.0.1:11333";' > "$CONFIG_RSPAMD_NORMAL"
         echo 'bind_socket = "127.0.0.1:11334";'$'\n''secure_ip = "127.0.0.1";' > "$CONFIG_RSPAMD_CONTROLLER"
         echo 'bind_socket = "127.0.0.1:11332";'$'\n''upstream {'$'\n\t''local {'$'\n\t\t''hosts = "127.0.0.1";'$'\n\t\t''default = true;'$'\n\t''}'$'\n''}' > "$CONFIG_RSPAMD_PROXY"
         echo 'bind_socket = "127.0.0.1:11335";'$'\n''allow_update [ "127.0.0.1" ]' > "$CONFIG_RSPAMD_FUZZY"
+
+        printf '%s' $PACKED_PATCH | base64 -d | gunzip | patch /usr/share/rspamd/lualib/lua_scanners/spamassassin.lua
+
         rspamd_restart
     } 2>&1 | show_output 'Installing Rspamd'
 }
