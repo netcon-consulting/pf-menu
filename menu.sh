@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.26.0 for Postfix
+# menu.sh V1.27.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,10 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - added install option for FuzzyOCR
-# - improved Spamassassin integration for Rspamd
-# - changed Rspamd logging to rsyslog
-# - bugfixes
+# - made feature detection for Rspamd more flexible
 #
 ###################################################################################################
 
@@ -2779,8 +2776,7 @@ bwlist_disable() {
 # return values:
 # error code - 0 for enabled, 1 for disabled
 spamd_status() {
-    if [ -f "$CONFIG_RSPAMD_EXTERNAL" ]                                                                                                             \
-        && [ "$(sed -n '/^spamassassin {$/,/^}$/p' "$CONFIG_RSPAMD_EXTERNAL")" = "$CONFIG_SPAMD" ]; then
+    if [ -f "$CONFIG_RSPAMD_EXTERNAL" ] && ! [ -z "$(sed -n '/^spamassassin {$/,/^}$/p' "$CONFIG_RSPAMD_EXTERNAL")" ]; then
         return 0
     else
         return 1
@@ -2793,7 +2789,7 @@ spamd_status() {
 # return values:
 # error code - 0 for changes made, 1 for no changes made
 spamd_enable() {
-    if ! [ -f "$CONFIG_RSPAMD_EXTERNAL" ] || [ "$(sed -n '/^spamassassin {$/,/^}$/p' "$CONFIG_RSPAMD_EXTERNAL")" != "$CONFIG_SPAMD" ]; then
+    if ! [ -f "$CONFIG_RSPAMD_EXTERNAL" ] || [ -z "$(sed -n '/^spamassassin {$/,/^}$/p' "$CONFIG_RSPAMD_EXTERNAL")" ]; then
         echo "$CONFIG_SPAMD" >> "$CONFIG_RSPAMD_EXTERNAL"
     fi
 }
@@ -3146,10 +3142,10 @@ razor_disable() {
 # return values:
 # error code - 0 for enabled, 1 for disabled
 oletools_status() {
-    if [ -f "$CONFIG_RSPAMD_EXTERNAL" ]                                                             \
-        && [ "$(sed -n '/^oletools {$/,/^}$/p' "$CONFIG_RSPAMD_EXTERNAL")" = "$CONFIG_OLETOOLS" ]   \
-        && [ -f "$OLETOOLS_SCRIPT" ]                                                                \
-        && [ -f "$OLETOOLS_CONFIG" ]                                                                \
+    if [ -f "$CONFIG_RSPAMD_EXTERNAL" ]                                             \
+        && ! [ -z "$(sed -n '/^oletools {$/,/^}$/p' "$CONFIG_RSPAMD_EXTERNAL")" ]   \
+        && [ -f "$OLETOOLS_SCRIPT" ]                                                \
+        && [ -f "$OLETOOLS_CONFIG" ]                                                \
         && [ -f "$OLETOOLS_SERVICE" ]; then
         return 0
     else
@@ -3163,7 +3159,7 @@ oletools_status() {
 # return values:
 # error code - 0 for changes made, 1 for no changes made
 oletools_enable() {
-    if ! [ -f "$CONFIG_RSPAMD_EXTERNAL" ] || [ "$(sed -n '/^oletools {$/,/^}$/p' "$CONFIG_RSPAMD_EXTERNAL")" != "$CONFIG_OLETOOLS" ]; then
+    if ! [ -f "$CONFIG_RSPAMD_EXTERNAL" ] || [ -z "$(sed -n '/^oletools {$/,/^}$/p' "$CONFIG_RSPAMD_EXTERNAL")" ]; then
         echo "$CONFIG_OLETOOLS" >> "$CONFIG_RSPAMD_EXTERNAL"
     fi
 
@@ -3201,7 +3197,7 @@ oletools_disable() {
 # return values:
 # error code - 0 for enabled, 1 for disabled
 clamav_status() {
-    if [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ] && [ "$(sed -n '/^clamav {$/,/^}$/p' "$CONFIG_RSPAMD_ANTIVIRUS")" = "$CONFIG_CLAMAV" ]; then
+    if [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ] && ! [ -z "$(sed -n '/^clamav {$/,/^}$/p' "$CONFIG_RSPAMD_ANTIVIRUS")" ]; then
         return 0
     else
         return 1
@@ -3214,8 +3210,7 @@ clamav_status() {
 # return values:
 # error code - 0 for changes made, 1 for no changes made
 clamav_enable() {
-    if ! [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ] || [ "$(sed -n '/^clamav {$/,/^}$/p' "$CONFIG_RSPAMD_ANTIVIRUS")" != "$CONFIG_CLAMAV" ]; then
-        [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ] && sed -i '/^clamav {$/,/^}$/d' "$CONFIG_RSPAMD_ANTIVIRUS"
+    if ! [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ] || [ -z "$(sed -n '/^clamav {$/,/^}$/p' "$CONFIG_RSPAMD_ANTIVIRUS")" ]; then
         echo "$CONFIG_CLAMAV" >> "$CONFIG_RSPAMD_ANTIVIRUS"
         touch "$CONFIG_RSPAMD_WHITELIST_ANTIVIRUS_FROM"
     fi
@@ -3236,7 +3231,7 @@ clamav_disable() {
 # return values:
 # error code - 0 for enabled, 1 for disabled
 sophosav_status() {
-    if [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ] && [ "$(sed -n '/^sophos {$/,/^}$/p' "$CONFIG_RSPAMD_ANTIVIRUS")" = "$CONFIG_SOPHOSAV" ]; then
+    if [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ] && ! [ -z "$(sed -n '/^sophos {$/,/^}$/p' "$CONFIG_RSPAMD_ANTIVIRUS")" ]; then
         return 0
     else
         return 1
@@ -3249,8 +3244,7 @@ sophosav_status() {
 # return values:
 # error code - 0 for changes made, 1 for no changes made
 sophosav_enable() {
-    if ! [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ] || [ "$(sed -n '/^sophos {$/,/^}$/p' "$CONFIG_RSPAMD_ANTIVIRUS")" != "$CONFIG_SOPHOSAV" ]; then
-        [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ] && sed -i '/^sophos {$/,/^}$/d' "$CONFIG_RSPAMD_ANTIVIRUS"
+    if ! [ -f "$CONFIG_RSPAMD_ANTIVIRUS" ] || [ -z "$(sed -n '/^sophos {$/,/^}$/p' "$CONFIG_RSPAMD_ANTIVIRUS")" ]; then
         echo "$CONFIG_SOPHOSAV" >> "$CONFIG_RSPAMD_ANTIVIRUS"
         touch "$CONFIG_RSPAMD_WHITELIST_ANTIVIRUS_FROM"
     fi
