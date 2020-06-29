@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.27.0 for Postfix
+# menu.sh V1.28.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - made feature detection for Rspamd more flexible
+# - added Rspamd cluster feature
 #
 ###################################################################################################
 
@@ -45,6 +45,7 @@ declare -g -r SCRIPT_PSWLUPDATE='/etc/netcon-scripts/getspf.sh'
 declare -g -r CRONTAB_PSWLUPDATE='@daily /etc/netcon-scripts/getspf.sh -p -s /etc/postfix/maps/domains'
 declare -g -r CRON_RULES='/etc/cron.daily/update_rules.sh'
 declare -g -r CONFIG_SSH="$HOME/.ssh/config"
+declare -g -r CONFIG_IPTABLES='/etc/iptables/rules.v4'
 declare -g -r PYZOR_PLUGIN='/usr/share/rspamd/plugins/pyzor.lua'
 declare -g -r PYZOR_DIR='/opt/pyzorsocket'
 declare -g -r PYZOR_SCRIPT="$PYZOR_DIR/bin/pyzorsocket.py"
@@ -101,7 +102,7 @@ INSTALL_FEATURE+=('acme')
 INSTALL_FEATURE+=('logwatch')
 INSTALL_FEATURE+=('logmanager')
 INSTALL_FEATURE+=('reboot')
-INSTALL_FEATURE+=('peer')
+INSTALL_FEATURE+=('cluster')
 
 # Postfix
 declare -g -r LABEL_INSTALL_POSTFIX='Postfix'
@@ -172,8 +173,8 @@ declare -g -r LABEL_INSTALL_LOGMANAGER='NetCon Log-manager'
 # Reboot alert
 declare -g -r LABEL_INSTALL_REBOOT='Reboot alert'
 
-# Setup peer
-declare -g -r LABEL_INSTALL_PEER='Setup cluster peer'
+# Setup cluster peer
+declare -g -r LABEL_INSTALL_CLUSTER='Setup cluster peer'
 
 ###################################################################################################
 # Postfix server configs
@@ -589,6 +590,7 @@ RSPAMD_FEATURE+=('razor')
 RSPAMD_FEATURE+=('oletools')
 RSPAMD_FEATURE+=('clamav')
 RSPAMD_FEATURE+=('sophosav')
+RSPAMD_FEATURE+=('cluster')
 
 for FEATURE in "${RSPAMD_FEATURE[@]}"; do
     declare -g -a RSPAMD_${FEATURE^^}
@@ -684,6 +686,13 @@ declare -g -r RSPAMD_SOPHOSAV_CHECK=1
 declare -g -r RSPAMD_SOPHOSAV_CUSTOM=1
 
 declare -g -r CONFIG_SOPHOSAV='sophos {'$'\n\t''max_size = 50000000;'$'\n\t''log_clean = true;'$'\n\t'"whitelist = \"$CONFIG_RSPAMD_WHITELIST_ANTIVIRUS_FROM\";"$'\n\t''scan_mime_parts = true;'$'\n\t''scan_text_mime = true;'$'\n\t''symbol = "SOPHOS_VIRUS";'$'\n\t''type = "sophos";'$'\n\t''action = "reject";'$'\n\t''servers = "127.0.0.1:4010";'$'\n\t''patterns {'$'\n\t\t'"JUST_EICAR = '^Eicar-Test-Signature$';"$'\n\t''}'$'\n''}'
+
+# Cluster setup
+declare -g -r RSPAMD_CLUSTER_LABEL='Cluster setup'
+declare -g -r RSPAMD_CLUSTER_CHECK=1
+declare -g -r RSPAMD_CLUSTER_CUSTOM=1
+
+RSPAMD_GREYLIST+=('dynamic_conf = "/var/lib/rspamd/rspamd_dynamic";' "$CONFIG_RSPAMD_OPTIONS")
 
 ###################################################################################################
 # Fail2ban configs
@@ -1311,12 +1320,12 @@ check_installed_reboot() {
     fi
 }
 
-# check whether peer is available
+# check whether cluster peer is available
 # parameters:
 # none
 # return values:
-# error code - 0 for peer available, 1 for not available
-check_installed_peer() {
+# error code - 0 for cluster peer available, 1 for not available
+check_installed_cluster() {
     if [ -f "$CONFIG_SSH" ] && grep -q '^Host mx$' "$CONFIG_SSH"; then
         return 0
     else
@@ -3259,6 +3268,76 @@ sophosav_disable() {
     sed -i '/^sophos {$/,/^}$/d' "$CONFIG_RSPAMD_ANTIVIRUS"
 }
 
+# check cluster setup status
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 for disabled
+cluster_status() {
+    if [ -f "$CONFIG_RSPAMD_OPTIONS" ] && ! [ -z "$(sed -n '/^neighbours {$/,/^}$/p' "$CONFIG_RSPAMD_OPTIONS")" ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# enable cluster setup
+# parameters:
+# none
+# return values:
+# error code - 0 for changes made, 1 for no changes made
+cluster_enable() {
+    declare -r IP_ADDRESS="$(hostname -I | tr -d ' ')"
+    declare -r IP_PEER="$(sed -n '/^Host mx$/,/^$/p' ~/.ssh/config | awk 'match($0, /^\tHostName (\S+)$/, a) {print a[1]}')"
+    declare -r LIST_IP="$(echo "$IP_ADDRESS"$'\n'"$IP_PEER" | sort | xargs)"
+    declare -r IP_MASTER="$(echo "$LIST_IP" | awk '{print $1}')"
+    declare -r IP_SLAVE="$(echo "$LIST_IP" | awk '{print $2}')"
+    declare CONFIG_CLUSTER CONFIG_RULE
+
+    if [ -z "$IP_MASTER" ] || [ -z "$IP_SLAVE" ]; then
+        return 1
+    fi
+
+    CONFIG_CLUSTER='neighbours {'$'\n\t'"server1 { host = \"$IP_MASTER:11334\"; }"$'\n\t'"server2 { host = \"$IP_SLAVE:11334\"; }"$'\n''}'
+
+    if ! [ -f "$CONFIG_RSPAMD_OPTIONS" ] || [ "$(sed -n '/^neighbours {$/,/^}$/p' "$CONFIG_RSPAMD_OPTIONS")" != "$CONFIG_CLUSTER" ]; then
+        echo "$CONFIG_CLUSTER" >> "$CONFIG_RSPAMD_OPTIONS"
+    fi
+
+    CONFIG_RULE="-p tcp -m tcp -s $IP_PEER --dport 11334 -j ACCEPT"
+
+    if ! grep -q "^$CONFIG_RULE$" "$CONFIG_IPTABLES"; then
+        NUM_LINE="$(grep -n '^-A INPUT ' /etc/iptables/rules.v4 | head -1 | awk -F: '{print $1}')"
+        sed -i "${NUM_LINE}i -A INPUT $CONFIG_RULE" "$CONFIG_IPTABLES"
+        iptables -I INPUT 1 $CONFIG_RULE &>/dev/null
+    fi
+
+    CONFIG_RULE="-p tcp -m tcp -s $IP_ADDRESS --dport 11334 -j ACCEPT"
+
+    ssh mx "if ! [ -f '$CONFIG_RSPAMD_OPTIONS' ] || [ \"\$(sed -n '/^neighbours {$/,/^}$/p' '$CONFIG_RSPAMD_OPTIONS')\" != '$CONFIG_CLUSTER' ]; then echo '$CONFIG_CLUSTER' >> '$CONFIG_RSPAMD_OPTIONS'; systemctl restart rspamd; fi; if ! grep -q '^$CONFIG_RULE$' '$CONFIG_IPTABLES'; then NUM_LINE="$(grep -n '^-A INPUT ' /etc/iptables/rules.v4 | head -1 | awk -F: '{print $1}')"; sed -i \"\${NUM_LINE}i -A INPUT $CONFIG_RULE\" '$CONFIG_IPTABLES'; iptables -I INPUT 1 $CONFIG_RULE; fi" &>/dev/null
+}
+
+# disable cluster setup
+# parameters:
+# none
+# return values:
+# none
+cluster_disable() {
+    declare -r IP_ADDRESS="$(hostname -I | tr -d ' ')"
+    declare -r IP_PEER="$(sed -n '/^Host mx$/,/^$/p' ~/.ssh/config | awk 'match($0, /^\tHostName (\S+)$/, a) {print a[1]}')"
+
+    sed -i '/^neighbours {$/,/^}$/d' "$CONFIG_RSPAMD_OPTIONS"
+
+    CONFIG_RULE="INPUT -p tcp -m tcp -s $IP_PEER --dport 11334 -j ACCEPT"
+
+    sed -i "/^-A $CONFIG_RULE$/d" "$CONFIG_IPTABLES"
+    iptables -D $CONFIG_RULE &>/dev/null
+
+    CONFIG_RULE="INPUT -p tcp -m tcp -s $IP_ADDRESS --dport 11334 -j ACCEPT"
+
+    ssh mx "sed -i '/^neighbours {$/,/^}$/d' '$CONFIG_RSPAMD_OPTIONS'; systemctl restart rspamd; sed -i '/^-A $CONFIG_RULE$/d' '$CONFIG_IPTABLES'; iptables -D $CONFIG_RULE" &>/dev/null
+}
+
 # checks status of given Rspamd feature
 # parameters:
 # $1 - feature label
@@ -3338,7 +3417,7 @@ rspamd_feature_disable() {
 # return values:
 # none
 rspamd_restart() {
-    service rspamd restart &>/dev/null
+    systemctl restart rspamd &>/dev/null
 }
 
 # enable/disable Rspamd features in dialog checklist
@@ -3587,7 +3666,7 @@ spamassassin_feature_disable() {
 # return values:
 # none
 spamassassin_restart() {
-    service spamassassin restart &>/dev/null
+    systemctl restart spamassassin &>/dev/null
 }
 
 # enable/disable Spamassassin features in dialog checklist
@@ -3767,7 +3846,7 @@ fail2ban_config() {
         MENU_FAIL2BAN_CONFIG+=("$CONFIG" "$(eval echo \"\$LABEL_CONFIG_FAIL2BAN_${CONFIG^^}\")")
     done
 
-    check_installed_peer && MENU_FAIL2BAN_CONFIG+=("$TAG_SYNC" 'Sync cluster')
+    check_installed_cluster && MENU_FAIL2BAN_CONFIG+=("$TAG_SYNC" 'Sync cluster')
 
     while true; do
         exec 3>&1
@@ -4878,12 +4957,12 @@ install_reboot() {
     add_crontab "$CRONTAB_REBOOT"
 }
 
-# setup peer
+# setup cluster peer
 # parameters:
 # none
 # return values:
 # none
-install_peer() {
+install_cluster() {
     declare -r SSH_KEY="$HOME/.ssh/id_ed25519"
     declare IP_ADDRESS RET_CODE SSH_PORT PASSWORD
 
@@ -5040,7 +5119,7 @@ menu_postfix() {
     MENU_POSTFIX+=("$TAG_SERVER" "$LABEL_SERVER")
     MENU_POSTFIX+=("$TAG_CLIENT" "$LABEL_CLIENT")
     MENU_POSTFIX+=("$TAG_INFO" "$LABEL_INFO")
-    check_installed_peer && MENU_POSTFIX+=("$TAG_SYNC" "$LABEL_SYNC")
+    check_installed_cluster && MENU_POSTFIX+=("$TAG_SYNC" "$LABEL_SYNC")
 
     while true; do
         exec 3>&1
@@ -5078,7 +5157,7 @@ menu_resolver() {
     MENU_RESOLVER+=("$TAG_CONFIG" "$LABEL_CONFIG")
     MENU_RESOLVER+=("$TAG_FORWARD" "$LABEL_FORWARD")
     MENU_RESOLVER+=("$TAG_LOCAL" "$LABEL_LOCAL")
-    check_installed_peer && MENU_RESOLVER+=("$TAG_SYNC" "$LABEL_SYNC")
+    check_installed_cluster && MENU_RESOLVER+=("$TAG_SYNC" "$LABEL_SYNC")
 
     while true; do
         exec 3>&1
@@ -5110,7 +5189,7 @@ menu_postfwd() {
 
     MENU_POSTFWD=()
     MENU_POSTFWD+=("$TAG_CONFIG" "$LABEL_CONFIG")
-    check_installed_peer && MENU_POSTFWD+=("$TAG_SYNC" "$LABEL_SYNC")
+    check_installed_cluster && MENU_POSTFWD+=("$TAG_SYNC" "$LABEL_SYNC")
 
     while true; do
         exec 3>&1
@@ -5142,7 +5221,7 @@ menu_dkim() {
 
     MENU_DKIM=()
     MENU_DKIM+=("$TAG_CONFIG" "$LABEL_CONFIG")
-    check_installed_peer && MENU_DKIM+=("$TAG_SYNC" "$LABEL_SYNC")
+    check_installed_cluster && MENU_DKIM+=("$TAG_SYNC" "$LABEL_SYNC")
 
     while true; do
         exec 3>&1
@@ -5174,7 +5253,7 @@ menu_spf() {
 
     MENU_SPF=()
     MENU_SPF+=("$TAG_CONFIG" "$LABEL_CONFIG")
-    check_installed_peer && MENU_SPF+=("$TAG_SYNC" "$LABEL_SYNC")
+    check_installed_cluster && MENU_SPF+=("$TAG_SYNC" "$LABEL_SYNC")
 
     while true; do
         exec 3>&1
@@ -5212,7 +5291,7 @@ menu_spamassassin() {
     MENU_SPAMASSASSIN+=("$TAG_FEATURE" "$LABEL_FEATURE")
     MENU_SPAMASSASSIN+=("$TAG_CONFIG" "$LABEL_CONFIG")
     MENU_SPAMASSASSIN+=("$TAG_INFO" "$LABEL_INFO")
-    check_installed_peer && MENU_SPAMASSASSIN+=("$TAG_SYNC" "$LABEL_SYNC")
+    check_installed_cluster && MENU_SPAMASSASSIN+=("$TAG_SYNC" "$LABEL_SYNC")
 
     while true; do
         exec 3>&1
@@ -5250,7 +5329,7 @@ menu_rspamd() {
     MENU_RSPAMD+=("$TAG_FEATURE" "$LABEL_FEATURE")
     MENU_RSPAMD+=("$TAG_CONFIG" "$LABEL_CONFIG")
     MENU_RSPAMD+=("$TAG_INFO" "$LABEL_INFO")
-    check_installed_peer && MENU_RSPAMD+=("$TAG_SYNC" "$LABEL_SYNC")
+    check_installed_cluster && MENU_RSPAMD+=("$TAG_SYNC" "$LABEL_SYNC")
 
     while true; do
         exec 3>&1
@@ -5285,7 +5364,7 @@ menu_fail2ban() {
     MENU_FAIL2BAN=()
     MENU_FAIL2BAN+=("$TAG_CONFIG" "$LABEL_CONFIG")
     MENU_FAIL2BAN+=("$TAG_JAIL" "$LABEL_JAIL")
-    check_installed_peer && MENU_FAIL2BAN+=("$TAG_SYNC" "$LABEL_SYNC")
+    check_installed_cluster && MENU_FAIL2BAN+=("$TAG_SYNC" "$LABEL_SYNC")
 
     while true; do
         exec 3>&1
@@ -5631,7 +5710,7 @@ declare -r TAG_MENU_RSPAMD='menu_rspamd'
 declare -r TAG_MENU_ADDON='menu_addon'
 declare -r TAG_MENU_MISC='menu_misc'
 declare -r TAG_MENU_LOG='menu_log'
-declare -r TAG_MENU_SYNC_ALL='sync_all'
+declare -r TAG_SYNC_ALL='sync_all'
 declare -r LABEL_MENU_INSTALL='Install'
 declare -r LABEL_MENU_POSTFIX='Postfix'
 declare -r LABEL_MENU_RSPAMD='Rspamd'
@@ -5670,7 +5749,7 @@ while true; do
     done
     MENU_MAIN+=("$TAG_MENU_MISC" "$LABEL_MENU_MISC")
     check_installed_logmanager && MENU_MAIN+=("$TAG_MENU_LOG" "$LABEL_MENU_LOG")
-    check_installed_peer && MENU_MAIN+=("$TAG_SYNC_ALL" "$LABEL_SYNC_ALL")
+    check_installed_cluster && MENU_MAIN+=("$TAG_SYNC_ALL" "$LABEL_SYNC_ALL")
 
     exec 3>&1
     DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Exit' --no-tags --extra-button --extra-label 'Help' --title "$TITLE_MAIN" --menu '' 0 0 0 "${MENU_MAIN[@]}" 2>&1 1>&3)"
