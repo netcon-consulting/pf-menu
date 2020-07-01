@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.28.0 for Postfix
+# menu.sh V1.29.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,8 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - added Rspamd cluster feature
+# - added option for toggling SSH password authentication
+# - bugfixes
 #
 ###################################################################################################
 
@@ -45,6 +46,7 @@ declare -g -r SCRIPT_PSWLUPDATE='/etc/netcon-scripts/getspf.sh'
 declare -g -r CRONTAB_PSWLUPDATE='@daily /etc/netcon-scripts/getspf.sh -p -s /etc/postfix/maps/domains'
 declare -g -r CRON_RULES='/etc/cron.daily/update_rules.sh'
 declare -g -r CONFIG_SSH="$HOME/.ssh/config"
+declare -g -r CONFIG_SSHD='/etc/ssh/sshd_config'
 declare -g -r CONFIG_IPTABLES='/etc/iptables/rules.v4'
 declare -g -r PYZOR_PLUGIN='/usr/share/rspamd/plugins/pyzor.lua'
 declare -g -r PYZOR_DIR='/opt/pyzorsocket'
@@ -3088,18 +3090,18 @@ razor_enable() {
     mkdir -p "$RAZOR_DIR/bin/"
 
     PACKED_SCRIPT='
-    H4sIAHhCq1wAA31UUW/TMBB+Jr/CmIc6oktBvKBJfYBpaAhNqlh5GpPlJZfWm2MH29lWEP+ds+Ok
-    WdXhl9iXu+/O932+N68XnbOLW6kX7c5vjf6QyaY11hNhN62wDoYzNEKqIprsgc0oWe4Gm3HD7s4Z
-    Pexdd9taU4JzWW1NQ5wp78Ej1ANYknzWZ6uraJiT9daCqKTeXMqnr3pOrjyem+/wqwPnL4SuFBaR
-    ZaUSzpHnZnbMNz/NMoKrgppso4k5UDWaSVplU5ElCcbC1lJBEQpQUgPLiwpKU+Hm+vTk/c0YIes+
-    aEno2cX52Te6BwsrQvW5eLmF8p7l439QDo54P1rpgYe2sT8UrDWWnhLa6XttHjUpTdMgHP2bH94l
-    4R/cqKcKLzVlrvi88+BWcc964pZTFoury/VqX2jjNgiQQuOH7VuU6girRi/TgmZ04Zt2sb5cWfEb
-    y58T+kj3cOmKDGEL4bjzFilm+dShVAaTTKAtuE75wM0ooaIUSrFrOko3JjuJXQgpn9dwk2evpqQN
-    gEvy7hkHPQWR+77K29AqNnOtaGZzMvux/nLycZb/h8WXELYHACN9E8JD7JxUE/7u8M7hV1F1TetY
-    lZO3hP7UNHsx3V0BuldqPj6O/kWxwwc1vrWUsEVfjAlFoRo0S+YwBLCMYRYUn+yma0D7JKAKXGll
-    66XRS3r+1CJ1JDadGE1EeuSJ/4BRiKriImEwiqcgkS2odhkPyC3xhijpPGjEeDk0DIwxNE6P43Eu
-    Vd+LNwC4QVwhIf5lwRbQcexIhI7HgDgQ5ewDuqU+9n4HwyW6ebvbc4cxRRxuvDYWQmDvVEuN0j3m
-    aPmo/AxFyrkWDXAexwvngRPO04TpCcr+AZfHVnq7BQAA
+    H4sIAAtN/F4AA31UTW/cIBC9+1dQesHqxtuqlyqSD22UKlWVKmr2lkYWMeM1iQEXcJJtlf/eAWzv
+    hzblYs8w83jMG+btm+Xg7PJO6iXoR9JvfGv0xyyTqjfWE27XPbcOJhsUl10RXfbAZzpZbyafcdPf
+    vTN6+nfDXW9NDc5ljTWKOFM/gEeoR7BkjFmdXV1Hx4KsWgtcSL2+lM/f9IJce7TVT/g9gPMXXIsO
+    SUQgD6pvZAcTyA+uQKwgGNxuvuJOltUdd47sZ7NjkPlpRnAJaEgbPcxB14zesGolSEmCs7Dh1CLQ
+    7KQGlhcCaiPw5+b05MNtNqfIJmWVhJ5dnJ99p1u0sCJWOqyqW6gfWD7vQ+fgSPSTlR6qUF32l4K1
+    xtJTQgf9oM2TJrVRCuHoS54dXGbEP7hSUhRvtStw8WXjwV3Ff5b0LXfFLq4vV1dbosqtEWBMjR+2
+    rVG+rcWT9O0RhZiQtqRLr3qaE+5Is3/p8cYMTym4q+4CNZbvwIZlwQ2dD+LMnVbUvOvYDZ3b3PI/
+    xp7EKtAFwmpkcpvvSTXBlOT9HolU+Ch5IpNYUNdzhVh08M3JJ5r/R7vXENoDgFm0HZlD7oKIHdXu
+    8aZhqxCD6h0TOXlH6C9Ns1ePuy9ApwbNpxeRXhs7fGzzOxzP6zE2ywIl7ADNRm+YD0hiGhPFZ7se
+    FGg/No0AV1vZe2l0Sc+fe+OAxPoTowkf3z/NZ6iCC1HxEYNRtCyWpYWuL6OBehJvSCedB40Yr6eG
+    MTCnxplwPM+N7FPDBgDsqlT+cCDusuAL6DiRJEJHMyBOMjn7iGFjGVPcwUBJcd5uttJhUhEHX9UY
+    CyEzUWqkxn49FmirusP6BXbYolUV+raq4kipqqBJVY1TJQmU/QNDrD+S2wUAAA==
     '
     printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$RAZOR_SCRIPT"
     chown "$RAZOR_USER:$RAZOR_USER" "$RAZOR_SCRIPT"
@@ -3180,6 +3182,7 @@ oletools_enable() {
     wget https://raw.githubusercontent.com/HeinleinSupport/olefy/master/olefy.service -O "$OLETOOLS_SERVICE" 2>/dev/null
 
     systemctl daemon-reload
+    systemctl enable olefy.service
     systemctl start olefy.service
 }
 
@@ -3192,6 +3195,7 @@ oletools_disable() {
     sed -i '/^oletools {$/,/^}$/d' "$CONFIG_RSPAMD_EXTERNAL"
 
     systemctl stop olefy.service
+    systemctl disable olefy.service
 
     rm -rf "$OLETOOLS_SCRIPT" "$OLETOOLS_CONFIG" "$OLETOOLS_SERVICE"
     userdel -r "$OLETOOLS_USER" &>/dev/null
@@ -4298,6 +4302,59 @@ automatic_update_disable() {
 # none
 automatic_update() {
     toggle_setting 'automatic_update' 'Automatic update'
+}
+
+# restart sshd
+# parameters:
+# none
+# return values:
+# none
+sshd_restart() {
+    systemctl restart sshd
+}
+
+# check password authentication status
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 disabled
+pwauth_status() {
+    grep -q '^PasswordAuthentication no$' "$CONFIG_SSHD" && return 1 || return 0
+}
+
+# enable password authentication
+# parameters:
+# none
+# return values:
+# none
+pwauth_enable() {
+    sed -i 's/^PasswordAuthentication no$/PasswordAuthentication yes/' "$CONFIG_SSHD"
+
+    sshd_restart
+}
+
+# disable password authentication
+# parameters:
+# none
+# return values:
+# none
+pwauth_disable() {
+    if grep -q '^PasswordAuthentication yes$' "$CONFIG_SSHD"; then
+        sed -i 's/^PasswordAuthentication yes$/PasswordAuthentication no/' "$CONFIG_SSHD"
+    else
+        echo 'PasswordAuthentication no' >> "$CONFIG_SSHD"
+    fi
+
+    sshd_restart
+}
+
+# toggle password authentication
+# parameters:
+# none
+# return values:
+# none
+password_auth() {
+    toggle_setting 'pwauth' 'SSH password authentication'
 }
 
 # select log action in dialog menu
@@ -5420,6 +5477,7 @@ menu_misc() {
     declare -r TAG_EMAIL='email_addresses'
     declare -r TAG_ADMIN='admin_addresses'
     declare -r TAG_UPDATES='automatic_update'
+    declare -r TAG_PWAUTH='password_auth'
     declare -r TAG_CONNECTIONS='show_connections'
     declare -r TAG_FIREWALL='show_firewall'
     declare -r TAG_INSTALL='show_install'
@@ -5428,6 +5486,7 @@ menu_misc() {
     declare -r LABEL_EMAIL='Set notification addresses'
     declare -r LABEL_ADMIN='Set admin addresses'
     declare -r LABEL_UPDATES='Automatic update'
+    declare -r LABEL_PWAUTH='SSH password authentication'
     declare -r LABEL_CONNECTIONS='Network connections'
     declare -r LABEL_FIREWALL='Firewall rules'
     declare -r LABEL_INSTALL='Install log'
@@ -5440,6 +5499,7 @@ menu_misc() {
         MENU_MISC+=("$TAG_EMAIL" "$LABEL_EMAIL")
         MENU_MISC+=("$TAG_ADMIN" "$LABEL_ADMIN")
         automatic_update_status && MENU_MISC+=("$TAG_UPDATES" "$LABEL_UPDATES (enabled)") || MENU_MISC+=("$TAG_UPDATES" "$LABEL_UPDATES (disabled)")
+        pwauth_status && MENU_MISC+=("$TAG_PWAUTH" "$LABEL_PWAUTH (enabled)") || MENU_MISC+=("$TAG_PWAUTH" "$LABEL_PWAUTH (disabled)")
         MENU_MISC+=("$TAG_CONNECTIONS" "$LABEL_CONNECTIONS")
         MENU_MISC+=("$TAG_FIREWALL" "$LABEL_FIREWALL")
         MENU_MISC+=("$TAG_INSTALL" "$LABEL_INSTALL")
