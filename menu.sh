@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.29.0 for Postfix
+# menu.sh V1.30.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,8 +16,8 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - added option for toggling SSH password authentication
-# - bugfixes
+# - for Rspamd added option for editing config files in local.d and override.d
+# - for Rspamd cluster feature also setup redis as cluster
 #
 ###################################################################################################
 
@@ -64,6 +64,7 @@ declare -g -r OLETOOLS_CONFIG='/etc/olefy.conf'
 declare -g -r OLETOOLS_USER='olefy'
 declare -g -r CONFIG_UPDATE='/etc/apt/apt.conf.d/50unattended-upgrades'
 declare -g -r CONFIG_LOGWATCH='/etc/logwatch/conf/logwatch.conf'
+declare -g -r CONFIG_REDIS='/etc/redis/redis.conf'
 
 ###################################################################################################
 # Default settings
@@ -693,8 +694,6 @@ declare -g -r CONFIG_SOPHOSAV='sophos {'$'\n\t''max_size = 50000000;'$'\n\t''log
 declare -g -r RSPAMD_CLUSTER_LABEL='Cluster setup'
 declare -g -r RSPAMD_CLUSTER_CHECK=1
 declare -g -r RSPAMD_CLUSTER_CUSTOM=1
-
-RSPAMD_GREYLIST+=('dynamic_conf = "/var/lib/rspamd/rspamd_dynamic";' "$CONFIG_RSPAMD_OPTIONS")
 
 ###################################################################################################
 # Fail2ban configs
@@ -3278,7 +3277,11 @@ sophosav_disable() {
 # return values:
 # error code - 0 for enabled, 1 for disabled
 cluster_status() {
-    if [ -f "$CONFIG_RSPAMD_OPTIONS" ] && ! [ -z "$(sed -n '/^neighbours {$/,/^}$/p' "$CONFIG_RSPAMD_OPTIONS")" ]; then
+    if [ -f "$CONFIG_RSPAMD_OPTIONS" ]                                                              \
+        && ! [ -z "$(sed -n '/^neighbours {$/,/^}$/p' "$CONFIG_RSPAMD_OPTIONS")" ]                  \
+        && grep -q '^dynamic_conf = "/var/lib/rspamd/rspamd_dynamic";$' "$CONFIG_RSPAMD_OPTIONS"    \
+        && grep -q '^#bind 127.0.0.1' "$CONFIG_REDIS"                                               \
+        && grep -q '^protected-mode no$' "$CONFIG_REDIS"; then
         return 0
     else
         return 1
@@ -3296,29 +3299,49 @@ cluster_enable() {
     declare -r LIST_IP="$(echo "$IP_ADDRESS"$'\n'"$IP_PEER" | sort | xargs)"
     declare -r IP_MASTER="$(echo "$LIST_IP" | awk '{print $1}')"
     declare -r IP_SLAVE="$(echo "$LIST_IP" | awk '{print $2}')"
-    declare CONFIG_CLUSTER CONFIG_RULE
+    declare CONFIG_CLUSTER CONFIG_DYNAMIC CONFIG_WRITE CONFIG_SLAVE CONFIG_FW
 
     if [ -z "$IP_MASTER" ] || [ -z "$IP_SLAVE" ]; then
         return 1
     fi
 
-    CONFIG_CLUSTER='neighbours {'$'\n\t'"server1 { host = \"$IP_MASTER:11334\"; }"$'\n\t'"server2 { host = \"$IP_SLAVE:11334\"; }"$'\n''}'
+    CONFIG_CLUSTER='neighbours {'$'\n\t'"master { host = \"$IP_MASTER:11334\"; }"$'\n\t'"slave { host = \"$IP_SLAVE:11334\"; }"$'\n''}'
+    CONFIG_DYNAMIC='dynamic_conf = "/var/lib/rspamd/rspamd_dynamic";'
+    CONFIG_WRITE="write_servers = \"$IP_MASTER:6379\";"
+    CONFIG_SLAVE="slaveof $IP_MASTER 6379"
 
     if ! [ -f "$CONFIG_RSPAMD_OPTIONS" ] || [ "$(sed -n '/^neighbours {$/,/^}$/p' "$CONFIG_RSPAMD_OPTIONS")" != "$CONFIG_CLUSTER" ]; then
         echo "$CONFIG_CLUSTER" >> "$CONFIG_RSPAMD_OPTIONS"
     fi
 
-    CONFIG_RULE="-p tcp -m tcp -s $IP_PEER --dport 11334 -j ACCEPT"
-
-    if ! grep -q "^$CONFIG_RULE$" "$CONFIG_IPTABLES"; then
-        NUM_LINE="$(grep -n '^-A INPUT ' /etc/iptables/rules.v4 | head -1 | awk -F: '{print $1}')"
-        sed -i "${NUM_LINE}i -A INPUT $CONFIG_RULE" "$CONFIG_IPTABLES"
-        iptables -I INPUT 1 $CONFIG_RULE &>/dev/null
+    if ! [ -f "$CONFIG_RSPAMD_OPTIONS" ] || ! grep -q "^$CONFIG_DYNAMIC$" "$CONFIG_RSPAMD_OPTIONS"; then
+        echo "$CONFIG_DYNAMIC" >> "$CONFIG_RSPAMD_OPTIONS"
     fi
 
-    CONFIG_RULE="-p tcp -m tcp -s $IP_ADDRESS --dport 11334 -j ACCEPT"
+    grep -q '^bind 127.0.0.1' "$CONFIG_REDIS" && sed -i 's/^bind 127.0.0.1/#bind 127.0.0.1/' "$CONFIG_REDIS"
+    grep -q '^protected-mode yes$' "$CONFIG_REDIS" && sed -i 's/^protected-mode yes$/protected-mode no/' "$CONFIG_REDIS"
 
-    ssh mx "if ! [ -f '$CONFIG_RSPAMD_OPTIONS' ] || [ \"\$(sed -n '/^neighbours {$/,/^}$/p' '$CONFIG_RSPAMD_OPTIONS')\" != '$CONFIG_CLUSTER' ]; then echo '$CONFIG_CLUSTER' >> '$CONFIG_RSPAMD_OPTIONS'; systemctl restart rspamd; fi; if ! grep -q '^$CONFIG_RULE$' '$CONFIG_IPTABLES'; then NUM_LINE="$(grep -n '^-A INPUT ' /etc/iptables/rules.v4 | head -1 | awk -F: '{print $1}')"; sed -i \"\${NUM_LINE}i -A INPUT $CONFIG_RULE\" '$CONFIG_IPTABLES'; iptables -I INPUT 1 $CONFIG_RULE; fi" &>/dev/null
+    if [ "$IP_ADDRESS" = "$IP_SLAVE" ]; then
+        if ! [ -f "$CONFIG_RSPAMD_REDIS" ] || ! grep -q "^$CONFIG_WRITE$" "$CONFIG_RSPAMD_REDIS"; then
+            echo "$CONFIG_WRITE" >> "$CONFIG_RSPAMD_REDIS"
+        fi
+
+        grep -q "^$CONFIG_SLAVE$" "$CONFIG_REDIS" || echo "$CONFIG_SLAVE" >> "$CONFIG_REDIS"
+    fi
+
+    CONFIG_FW="-p tcp -m tcp -s $IP_PEER --match multiport --dports 11334,6379 -j ACCEPT"
+
+    if ! grep -q "^$CONFIG_FW$" "$CONFIG_IPTABLES"; then
+        NUM_LINE="$(grep -n '^-A INPUT ' "$CONFIG_IPTABLES" | head -1 | awk -F: '{print $1}')"
+        sed -i "${NUM_LINE}i -A INPUT $CONFIG_FW" "$CONFIG_IPTABLES"
+        iptables -I INPUT 1 $CONFIG_FW &>/dev/null
+    fi
+
+    CONFIG_FW="-p tcp -m tcp -s $IP_ADDRESS --match multiport --dports 11334,6379 -j ACCEPT"
+
+    ssh mx "if ! [ -f '$CONFIG_RSPAMD_OPTIONS' ] || [ \"\$(sed -n '/^neighbours {$/,/^}$/p' '$CONFIG_RSPAMD_OPTIONS')\" != '$CONFIG_CLUSTER' ]; then echo '$CONFIG_CLUSTER' >> '$CONFIG_RSPAMD_OPTIONS'; fi; if ! [ -f '$CONFIG_RSPAMD_OPTIONS' ] || ! grep -q '^$CONFIG_DYNAMIC$' '$CONFIG_RSPAMD_OPTIONS'; then echo '$CONFIG_DYNAMIC' >> '$CONFIG_RSPAMD_OPTIONS'; fi; grep -q '^bind 127.0.0.1' '$CONFIG_REDIS' && sed -i 's/^bind 127.0.0.1/#bind 127.0.0.1/' '$CONFIG_REDIS'; grep -q '^protected-mode yes$' '$CONFIG_REDIS' && sed -i 's/^protected-mode yes$/protected-mode no/' '$CONFIG_REDIS'; if [ '$IP_PEER' = '$IP_SLAVE' ]; then if ! [ -f '$CONFIG_RSPAMD_REDIS' ] || ! grep -q '^$CONFIG_WRITE$' '$CONFIG_RSPAMD_REDIS'; then echo '$CONFIG_WRITE' >> '$CONFIG_RSPAMD_REDIS'; fi; grep -q '^$CONFIG_SLAVE$' '$CONFIG_REDIS' || echo '$CONFIG_SLAVE' >> '$CONFIG_REDIS'; fi; if ! grep -q '^$CONFIG_FW$' '$CONFIG_IPTABLES'; then NUM_LINE="$(grep -n '^-A INPUT ' "$CONFIG_IPTABLES" | head -1 | awk -F: '{print $1}')"; sed -i \"\${NUM_LINE}i -A INPUT $CONFIG_FW\" '$CONFIG_IPTABLES'; iptables -I INPUT 1 $CONFIG_FW; fi; systemctl restart redis; systemctl restart rspamd" &>/dev/null
+
+    systemctl restart redis &>/dev/null
 }
 
 # disable cluster setup
@@ -3329,17 +3352,32 @@ cluster_enable() {
 cluster_disable() {
     declare -r IP_ADDRESS="$(hostname -I | tr -d ' ')"
     declare -r IP_PEER="$(sed -n '/^Host mx$/,/^$/p' ~/.ssh/config | awk 'match($0, /^\tHostName (\S+)$/, a) {print a[1]}')"
+    declare -r LIST_IP="$(echo "$IP_ADDRESS"$'\n'"$IP_PEER" | sort | xargs)"
+    declare -r IP_MASTER="$(echo "$LIST_IP" | awk '{print $1}')"
+    declare -r IP_SLAVE="$(echo "$LIST_IP" | awk '{print $2}')"
+    declare -r CONFIG_DYNAMIC='dynamic_conf = "\/var\/lib\/rspamd\/rspamd_dynamic";'
+    declare -r CONFIG_WRITE="write_servers = \"$IP_MASTER:6379\";"
+    declare -r CONFIG_SLAVE="slaveof $IP_MASTER 6379"
 
     sed -i '/^neighbours {$/,/^}$/d' "$CONFIG_RSPAMD_OPTIONS"
+    sed -i "/^$CONFIG_DYNAMIC$/d" "$CONFIG_RSPAMD_OPTIONS"
+    sed -i "/^$CONFIG_WRITE$/d" "$CONFIG_RSPAMD_REDIS"
 
-    CONFIG_RULE="INPUT -p tcp -m tcp -s $IP_PEER --dport 11334 -j ACCEPT"
+    sed -i 's/^#bind 127.0.0.1/bind 127.0.0.1/' "$CONFIG_REDIS"
+    sed -i 's/^protected-mode no$/protected-mode yes/' "$CONFIG_REDIS"
+    sed -i "/^$CONFIG_SLAVE$/d" "$CONFIG_REDIS"
 
-    sed -i "/^-A $CONFIG_RULE$/d" "$CONFIG_IPTABLES"
-    iptables -D $CONFIG_RULE &>/dev/null
+    systemctl restart rspamd &>/dev/null
+    systemctl restart redis &>/dev/null
 
-    CONFIG_RULE="INPUT -p tcp -m tcp -s $IP_ADDRESS --dport 11334 -j ACCEPT"
+    CONFIG_FW="INPUT -p tcp -m tcp -s $IP_PEER --match multiport --dports 11334,6379 -j ACCEPT"
 
-    ssh mx "sed -i '/^neighbours {$/,/^}$/d' '$CONFIG_RSPAMD_OPTIONS'; systemctl restart rspamd; sed -i '/^-A $CONFIG_RULE$/d' '$CONFIG_IPTABLES'; iptables -D $CONFIG_RULE" &>/dev/null
+    sed -i "/^-A $CONFIG_FW$/d" "$CONFIG_IPTABLES"
+    iptables -D $CONFIG_FW &>/dev/null
+
+    CONFIG_FW="INPUT -p tcp -m tcp -s $IP_ADDRESS --match multiport --dports 11334,6379 -j ACCEPT"
+
+    ssh mx "sed -i '/^neighbours {$/,/^}$/d' '$CONFIG_RSPAMD_OPTIONS'; sed -i '/^$CONFIG_DYNAMIC$/d' '$CONFIG_RSPAMD_OPTIONS'; sed -i '/^$CONFIG_WRITE$/d' '$CONFIG_RSPAMD_REDIS'; sed -i 's/^#bind 127.0.0.1/bind 127.0.0.1/' '$CONFIG_REDIS'; sed -i 's/^protected-mode no$/protected-mode yes/' '$CONFIG_REDIS'; sed -i '/^$CONFIG_SLAVE$/d' '$CONFIG_REDIS'; systemctl restart rspamd; systemctl restart redis; sed -i '/^-A $CONFIG_FW$/d' '$CONFIG_IPTABLES'; iptables -D $CONFIG_FW" &>/dev/null
 }
 
 # checks status of given Rspamd feature
@@ -3482,10 +3520,17 @@ rspamd_feature() {
 # return values:
 # none
 rspamd_config() {
-    declare -a MENU_RSPAMD_CONFIG
-    declare CONFIG DIALOG_RET RET_CODE FILE_CONFIG
+    declare -r TAG_LOCAL='local.d'
+    declare -r TAG_OVERRIDE='override.d'
+    declare -r LABEL_LOCAL='local.d'
+    declare -r LABEL_OVERRIDE='override.d'
+    declare -a MENU_RSPAMD_CONFIG MENU_FILE
+    declare CONFIG DIALOG_RET RET_CODE DIR_CONFIG
 
     MENU_RSPAMD_CONFIG=()
+
+    [ -z "$(ls "$DIR_CONFIG")" ] || MENU_RSPAMD_CONFIG+=("$TAG_LOCAL" "$LABEL_LOCAL")
+    [ -z "$(ls "$DIR_CONFIG")" ] || MENU_RSPAMD_CONFIG+=("$TAG_OVERRIDE" "$LABEL_OVERRIDE")
 
     for CONFIG in "${RSPAMD_CONFIG[@]}"; do
         MENU_RSPAMD_CONFIG+=("$CONFIG" "$(eval echo \"\$LABEL_CONFIG_RSPAMD_${CONFIG^^}\")")
@@ -3498,7 +3543,28 @@ rspamd_config() {
         exec 3>&-
 
         if [ "$RET_CODE" = 0 ]; then
-            edit_config "$(eval echo \"\$CONFIG_RSPAMD_${DIALOG_RET^^}\")" && systemctl reload rspamd &>/dev/null
+            if [ "$DIALOG_RET" = "$TAG_LOCAL" ] || [ "$DIALOG_RET" = "$TAG_OVERRIDE" ]; then
+                DIR_CONFIG="$DIR_CONFIG_RSPAMD/$DIALOG_RET"
+
+                LIST_FILE="$(ls "$DIR_CONFIG")"
+
+                MENU_FILE=()
+
+                for FILE in $LIST_FILE; do
+                    MENU_FILE+=("$FILE" "$FILE")
+                done
+
+                exec 3>&1
+                DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Back' --ok-label 'Select' --no-tags --extra-button --extra-label 'Help' --menu 'Choose Rspamd config to edit' 0 0 0 "${MENU_FILE[@]}" 2>&1 1>&3)"
+                RET_CODE="$?"
+                exec 3>&-
+
+                if [ "$RET_CODE" = 0 ]; then
+                    edit_config "$DIR_CONFIG/$DIALOG_RET" && systemctl reload rspamd &>/dev/null
+                fi
+            else
+                edit_config "$(eval echo \"\$CONFIG_RSPAMD_${DIALOG_RET^^}\")" && systemctl reload rspamd &>/dev/null
+            fi
         elif [ "$RET_CODE" = 3 ]; then
             show_help "$HELP_RSPAMD_CONFIG"
         else
@@ -3530,7 +3596,7 @@ rspamd_sync() {
 # none
 rspamd_info() {
     declare -r INFO="$(rspamc stat)"
- 
+
     show_info 'Rspamd info & stats' "$INFO"
 }
 
