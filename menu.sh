@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.30.0 for Postfix
+# menu.sh V1.31.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,8 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - for Rspamd added option for editing config files in local.d and override.d
-# - for Rspamd cluster feature also setup redis as cluster
+# - for Rspamd cluster configure redis servers as master-slave
 #
 ###################################################################################################
 
@@ -3307,7 +3306,7 @@ cluster_enable() {
 
     CONFIG_CLUSTER='neighbours {'$'\n\t'"master { host = \"$IP_MASTER:11334\"; }"$'\n\t'"slave { host = \"$IP_SLAVE:11334\"; }"$'\n''}'
     CONFIG_DYNAMIC='dynamic_conf = "/var/lib/rspamd/rspamd_dynamic";'
-    CONFIG_WRITE="write_servers = \"$IP_MASTER:6379\";"
+    CONFIG_WRITE="write_servers = \"$IP_MASTER\";"
     CONFIG_SLAVE="slaveof $IP_MASTER 6379"
 
     if ! [ -f "$CONFIG_RSPAMD_OPTIONS" ] || [ "$(sed -n '/^neighbours {$/,/^}$/p' "$CONFIG_RSPAMD_OPTIONS")" != "$CONFIG_CLUSTER" ]; then
@@ -3318,12 +3317,14 @@ cluster_enable() {
         echo "$CONFIG_DYNAMIC" >> "$CONFIG_RSPAMD_OPTIONS"
     fi
 
+    grep -q '^read_servers = "127.0.0.1";$' "$CONFIG_RSPAMD_REDIS" && sed -i "s/^read_servers = \"127.0.0.1\";$/read_servers = \"master-slave:127.0.0.1,$IP_PEER\";/" "$CONFIG_RSPAMD_REDIS"
+
     grep -q '^bind 127.0.0.1' "$CONFIG_REDIS" && sed -i 's/^bind 127.0.0.1/#bind 127.0.0.1/' "$CONFIG_REDIS"
     grep -q '^protected-mode yes$' "$CONFIG_REDIS" && sed -i 's/^protected-mode yes$/protected-mode no/' "$CONFIG_REDIS"
 
     if [ "$IP_ADDRESS" = "$IP_SLAVE" ]; then
-        if ! [ -f "$CONFIG_RSPAMD_REDIS" ] || ! grep -q "^$CONFIG_WRITE$" "$CONFIG_RSPAMD_REDIS"; then
-            echo "$CONFIG_WRITE" >> "$CONFIG_RSPAMD_REDIS"
+        if ! [ -f "$CONFIG_RSPAMD_REDIS" ] || grep -q '^write_servers = "127.0.0.1";$' "$CONFIG_RSPAMD_REDIS"; then
+            sed -i "s/^write_servers = \"127.0.0.1\";$/$CONFIG_WRITE/" "$CONFIG_RSPAMD_REDIS"
         fi
 
         grep -q "^$CONFIG_SLAVE$" "$CONFIG_REDIS" || echo "$CONFIG_SLAVE" >> "$CONFIG_REDIS"
@@ -3339,7 +3340,7 @@ cluster_enable() {
 
     CONFIG_FW="-p tcp -m tcp -s $IP_ADDRESS --match multiport --dports 11334,6379 -j ACCEPT"
 
-    ssh mx "if ! [ -f '$CONFIG_RSPAMD_OPTIONS' ] || [ \"\$(sed -n '/^neighbours {$/,/^}$/p' '$CONFIG_RSPAMD_OPTIONS')\" != '$CONFIG_CLUSTER' ]; then echo '$CONFIG_CLUSTER' >> '$CONFIG_RSPAMD_OPTIONS'; fi; if ! [ -f '$CONFIG_RSPAMD_OPTIONS' ] || ! grep -q '^$CONFIG_DYNAMIC$' '$CONFIG_RSPAMD_OPTIONS'; then echo '$CONFIG_DYNAMIC' >> '$CONFIG_RSPAMD_OPTIONS'; fi; grep -q '^bind 127.0.0.1' '$CONFIG_REDIS' && sed -i 's/^bind 127.0.0.1/#bind 127.0.0.1/' '$CONFIG_REDIS'; grep -q '^protected-mode yes$' '$CONFIG_REDIS' && sed -i 's/^protected-mode yes$/protected-mode no/' '$CONFIG_REDIS'; if [ '$IP_PEER' = '$IP_SLAVE' ]; then if ! [ -f '$CONFIG_RSPAMD_REDIS' ] || ! grep -q '^$CONFIG_WRITE$' '$CONFIG_RSPAMD_REDIS'; then echo '$CONFIG_WRITE' >> '$CONFIG_RSPAMD_REDIS'; fi; grep -q '^$CONFIG_SLAVE$' '$CONFIG_REDIS' || echo '$CONFIG_SLAVE' >> '$CONFIG_REDIS'; fi; if ! grep -q '^$CONFIG_FW$' '$CONFIG_IPTABLES'; then NUM_LINE="$(grep -n '^-A INPUT ' "$CONFIG_IPTABLES" | head -1 | awk -F: '{print $1}')"; sed -i \"\${NUM_LINE}i -A INPUT $CONFIG_FW\" '$CONFIG_IPTABLES'; iptables -I INPUT 1 $CONFIG_FW; fi; systemctl restart redis; systemctl restart rspamd" &>/dev/null
+    ssh mx "if ! [ -f '$CONFIG_RSPAMD_OPTIONS' ] || [ \"\$(sed -n '/^neighbours {$/,/^}$/p' '$CONFIG_RSPAMD_OPTIONS')\" != '$CONFIG_CLUSTER' ]; then echo '$CONFIG_CLUSTER' >> '$CONFIG_RSPAMD_OPTIONS'; fi; if ! [ -f '$CONFIG_RSPAMD_OPTIONS' ] || ! grep -q '^$CONFIG_DYNAMIC$' '$CONFIG_RSPAMD_OPTIONS'; then echo '$CONFIG_DYNAMIC' >> '$CONFIG_RSPAMD_OPTIONS'; fi; grep -q '^read_servers = \"127.0.0.1\";$' '$CONFIG_RSPAMD_REDIS' && sed -i 's/^read_servers = \"127.0.0.1\";$/read_servers = \"master-slave:127.0.0.1,$IP_ADDRESS\";/' '$CONFIG_RSPAMD_REDIS'; grep -q '^bind 127.0.0.1' '$CONFIG_REDIS' && sed -i 's/^bind 127.0.0.1/#bind 127.0.0.1/' '$CONFIG_REDIS'; grep -q '^protected-mode yes$' '$CONFIG_REDIS' && sed -i 's/^protected-mode yes$/protected-mode no/' '$CONFIG_REDIS'; if [ '$IP_PEER' = '$IP_SLAVE' ]; then if ! [ -f '$CONFIG_RSPAMD_REDIS' ] || grep -q '^write_servers = \"127.0.0.1\";$' '$CONFIG_RSPAMD_REDIS'; then sed -i 's/^write_servers = \"127.0.0.1\";$/$CONFIG_WRITE/' '$CONFIG_RSPAMD_REDIS'; fi; grep -q '^$CONFIG_SLAVE$' '$CONFIG_REDIS' || echo '$CONFIG_SLAVE' >> '$CONFIG_REDIS'; fi; if ! grep -q '^$CONFIG_FW$' '$CONFIG_IPTABLES'; then NUM_LINE="$(grep -n '^-A INPUT ' "$CONFIG_IPTABLES" | head -1 | awk -F: '{print $1}')"; sed -i \"\${NUM_LINE}i -A INPUT $CONFIG_FW\" '$CONFIG_IPTABLES'; iptables -I INPUT 1 $CONFIG_FW; fi; systemctl restart redis; systemctl restart rspamd" &>/dev/null
 
     systemctl restart redis &>/dev/null
 }
@@ -3356,12 +3357,13 @@ cluster_disable() {
     declare -r IP_MASTER="$(echo "$LIST_IP" | awk '{print $1}')"
     declare -r IP_SLAVE="$(echo "$LIST_IP" | awk '{print $2}')"
     declare -r CONFIG_DYNAMIC='dynamic_conf = "\/var\/lib\/rspamd\/rspamd_dynamic";'
-    declare -r CONFIG_WRITE="write_servers = \"$IP_MASTER:6379\";"
+    declare -r CONFIG_WRITE="write_servers = \"$IP_MASTER\";"
     declare -r CONFIG_SLAVE="slaveof $IP_MASTER 6379"
 
     sed -i '/^neighbours {$/,/^}$/d' "$CONFIG_RSPAMD_OPTIONS"
     sed -i "/^$CONFIG_DYNAMIC$/d" "$CONFIG_RSPAMD_OPTIONS"
-    sed -i "/^$CONFIG_WRITE$/d" "$CONFIG_RSPAMD_REDIS"
+    sed -i "s/^read_servers = \"master-slave:127.0.0.1,$IP_PEER\";$/read_servers = \"127.0.0.1\";/" "$CONFIG_RSPAMD_REDIS"
+    sed -i "s/^$CONFIG_WRITE$/write_servers = \"127.0.0.1\";/" "$CONFIG_RSPAMD_REDIS"
 
     sed -i 's/^#bind 127.0.0.1/bind 127.0.0.1/' "$CONFIG_REDIS"
     sed -i 's/^protected-mode no$/protected-mode yes/' "$CONFIG_REDIS"
@@ -3377,7 +3379,7 @@ cluster_disable() {
 
     CONFIG_FW="INPUT -p tcp -m tcp -s $IP_ADDRESS --match multiport --dports 11334,6379 -j ACCEPT"
 
-    ssh mx "sed -i '/^neighbours {$/,/^}$/d' '$CONFIG_RSPAMD_OPTIONS'; sed -i '/^$CONFIG_DYNAMIC$/d' '$CONFIG_RSPAMD_OPTIONS'; sed -i '/^$CONFIG_WRITE$/d' '$CONFIG_RSPAMD_REDIS'; sed -i 's/^#bind 127.0.0.1/bind 127.0.0.1/' '$CONFIG_REDIS'; sed -i 's/^protected-mode no$/protected-mode yes/' '$CONFIG_REDIS'; sed -i '/^$CONFIG_SLAVE$/d' '$CONFIG_REDIS'; systemctl restart rspamd; systemctl restart redis; sed -i '/^-A $CONFIG_FW$/d' '$CONFIG_IPTABLES'; iptables -D $CONFIG_FW" &>/dev/null
+    ssh mx "sed -i '/^neighbours {$/,/^}$/d' '$CONFIG_RSPAMD_OPTIONS'; sed -i '/^$CONFIG_DYNAMIC$/d' '$CONFIG_RSPAMD_OPTIONS'; sed -i 's/^read_servers = \"master-slave:127.0.0.1,$IP_ADDRESS\";$/read_servers = \"127.0.0.1\";/' '$CONFIG_RSPAMD_REDIS'; sed -i 's/^$CONFIG_WRITE$/write_servers = \"127.0.0.1\";/' '$CONFIG_RSPAMD_REDIS'; sed -i 's/^#bind 127.0.0.1/bind 127.0.0.1/' '$CONFIG_REDIS'; sed -i 's/^protected-mode no$/protected-mode yes/' '$CONFIG_REDIS'; sed -i '/^$CONFIG_SLAVE$/d' '$CONFIG_REDIS'; systemctl restart rspamd; systemctl restart redis; sed -i '/^-A $CONFIG_FW$/d' '$CONFIG_IPTABLES'; iptables -D $CONFIG_FW" &>/dev/null
 }
 
 # checks status of given Rspamd feature
@@ -4734,7 +4736,8 @@ install_rspamd() {
         apt update
         apt install -y redis-server rspamd
 
-        echo 'servers = "127.0.0.1";' > "$CONFIG_RSPAMD_REDIS"
+        echo 'read_servers = "127.0.0.1";' > "$CONFIG_RSPAMD_REDIS"
+        echo 'write_servers = "127.0.0.1";' > "$CONFIG_RSPAMD_REDIS"
         echo 'bind_socket = "127.0.0.1:11333";' > "$CONFIG_RSPAMD_NORMAL"
         echo 'bind_socket = "0.0.0.0:11334";'$'\n''secure_ip = "127.0.0.1";' > "$CONFIG_RSPAMD_CONTROLLER"
         echo 'bind_socket = "127.0.0.1:11332";'$'\n''upstream {'$'\n\t''local {'$'\n\t\t''hosts = "127.0.0.1";'$'\n\t\t''default = true;'$'\n\t''}'$'\n''}' > "$CONFIG_RSPAMD_PROXY"
@@ -5118,11 +5121,12 @@ install_cluster() {
                 fi
 
                 if [ "$?" = 0 ]; then
+                    sed -i '/^Host mx$/,/^$/d' "$CONFIG_SSH"
                     echo $'\n''Host mx'$'\n\t'"HostName $IP_ADDRESS"$'\n\t''User root'$'\n\t'"Port $SSH_PORT"$'\n\t'"IdentityFile $SSH_KEY"$'\n' >> "$CONFIG_SSH"
 
                     IP_ADDRESS="$(hostname -I | awk '{print $1}')"
 
-                    ssh mx "[ -f '$SSH_KEY' ] || ssh-keygen -t ed25519 -N '' -f '$SSH_KEY' &>/dev/null; echo $'\n''Host mx'$'\n\t''HostName $IP_ADDRESS'$'\n\t''User root'$'\n\t''Port $SSH_PORT'$'\n\t''IdentityFile $SSH_KEY' >> '$CONFIG_SSH'; ssh-keyscan -H $IP_ADDRESS 2>/dev/null | grep ecdsa-sha2-nistp256 >> '$HOME/.ssh/known_hosts'; cat '$SSH_KEY.pub'" >> "$HOME/.ssh/authorized_keys"
+                    ssh mx "[ -f '$SSH_KEY' ] || ssh-keygen -t ed25519 -N '' -f '$SSH_KEY' &>/dev/null; sed -i '/^Host mx$/,/^$/d' '$CONFIG_SSH'; echo $'\n''Host mx'$'\n\t''HostName $IP_ADDRESS'$'\n\t''User root'$'\n\t''Port $SSH_PORT'$'\n\t''IdentityFile $SSH_KEY' >> '$CONFIG_SSH'; ssh-keyscan -H $IP_ADDRESS 2>/dev/null | grep ecdsa-sha2-nistp256 >> '$HOME/.ssh/known_hosts'; cat '$SSH_KEY.pub'" >> "$HOME/.ssh/authorized_keys"
                 fi
             fi
         fi
