@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.31.0 for Postfix
+# menu.sh V1.32.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - for Rspamd cluster configure redis servers as master-slave
+# - bugfix
 #
 ###################################################################################################
 
@@ -2283,7 +2283,10 @@ postfix_config() {
             edit_config "$FILE_CONFIG"
 
             if [ "$?" = 0 ]; then
-                postconf 2>/dev/null | grep -q "hash:$FILE_CONFIG" && postmap "$FILE_CONFIG" &>/dev/null
+                if [ "$DIALOG_RET" = 'transport'] || postconf 2>/dev/null | grep -q "hash:$FILE_CONFIG"; then
+                    postmap "$FILE_CONFIG" &>/dev/null
+                fi
+
                 postfix reload &>/dev/null
             fi
         elif [ "$RET_CODE" = 3 ]; then
