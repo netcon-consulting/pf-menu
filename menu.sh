@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.32.0 for Postfix
+# menu.sh V1.33.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,10 +16,11 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - bugfix
+# - error logging
 #
 ###################################################################################################
 
+declare -g -r LOG_MENU='menu.log'
 declare -g -r VERSION_MENU="$(grep '^# menu.sh V' "$0" | awk '{print $3}')"
 declare -g -r DIALOG='dialog'
 declare -g -r LINK_GITHUB='https://raw.githubusercontent.com/netcon-consulting/pf-menu/master'
@@ -4660,7 +4661,7 @@ install_spamassassin() {
     FJDE780r0G3A+hMNdJVIq8SFkJQWHziaE0qiAAAA
     '
     {
-        apt install -y geoip-bin geoip-database geoip-database-extra cpanminus libbsd-resource-perl libdbi-perl libencode-detect-perl libgeo-ip-perl liblwp-useragent-determined-perl libmail-dkim-perl libnet-cidr-perl libdigest-sha-perl libnet-patricia-perl postfix postfix-pcre sa-compile spamassassin spamc spf-tools-perl redis-server
+        apt install -y geoip-bin geoip-database geoip-database-extra cpanminus libbsd-resource-perl libdbi-perl libencode-detect-perl libgeo-ip-perl liblwp-useragent-determined-perl libmail-dkim-perl libnet-cidr-perl libdigest-sha-perl libnet-patricia-perl postfix postfix-pcre sa-compile spamassassin spamc spf-tools-perl redis-server libarchive-zip-perl libio-string-perl libmaxmind-db-reader-perl libmaxmind-db-reader-xs-perl libnet-libidn-perl libio-socket-inet6-perl libgeoip2-perl
 
         grep -q '^spamd:' /etc/group || addgroup spamd
         grep -q '^spamd:' /etc/passwd || adduser --system --disabled-login --ingroup spamd spamd
@@ -5831,70 +5832,74 @@ base_setup() {
     fi
 }
 
-# root menu, select option in dialog menu
+# main menu, select option in dialog menu
 # parameters:
 # none
 # return values:
 # none
-declare -r CONFIG_BASH="$HOME/.bashrc"
-declare -r TAG_MENU_INSTALL='menu_install'
-declare -r TAG_MENU_POSTFIX='menu_postfix'
-declare -r TAG_MENU_RSPAMD='menu_rspamd'
-declare -r TAG_MENU_ADDON='menu_addon'
-declare -r TAG_MENU_MISC='menu_misc'
-declare -r TAG_MENU_LOG='menu_log'
-declare -r TAG_SYNC_ALL='sync_all'
-declare -r LABEL_MENU_INSTALL='Install'
-declare -r LABEL_MENU_POSTFIX='Postfix'
-declare -r LABEL_MENU_RSPAMD='Rspamd'
-declare -r LABEL_MENU_ADDON='Addon'
-declare -r LABEL_MENU_MISC='Misc'
-declare -r LABEL_MENU_LOG='Log files'
-declare -r LABEL_SYNC_ALL='Sync cluster'
-declare -a MENU_MAIN
-declare DIALOG_RET RET_CODE TAG_ADDON
+menu_main() {
+    declare -r CONFIG_BASH="$HOME/.bashrc"
+    declare -r TAG_MENU_INSTALL='menu_install'
+    declare -r TAG_MENU_POSTFIX='menu_postfix'
+    declare -r TAG_MENU_RSPAMD='menu_rspamd'
+    declare -r TAG_MENU_ADDON='menu_addon'
+    declare -r TAG_MENU_MISC='menu_misc'
+    declare -r TAG_MENU_LOG='menu_log'
+    declare -r TAG_SYNC_ALL='sync_all'
+    declare -r LABEL_MENU_INSTALL='Install'
+    declare -r LABEL_MENU_POSTFIX='Postfix'
+    declare -r LABEL_MENU_RSPAMD='Rspamd'
+    declare -r LABEL_MENU_ADDON='Addon'
+    declare -r LABEL_MENU_MISC='Misc'
+    declare -r LABEL_MENU_LOG='Log files'
+    declare -r LABEL_SYNC_ALL='Sync cluster'
+    declare -a MENU_MAIN
+    declare DIALOG_RET RET_CODE TAG_ADDON
 
-if ! check_compatible; then
-    show_info 'Incompatible Linux distro' 'This tool only supports Ubuntu, Debian and SUSE.'
-    clear
-    exit 1
-fi
+    if ! check_compatible; then
+        show_info 'Incompatible Linux distro' 'This tool only supports Ubuntu, Debian and SUSE.'
+        clear
+        exit 1
+    fi
 
-if ! [ -f "$CONFIG_BASH" ] || ! grep -q "alias menu=$HOME/menu.sh" "$CONFIG_BASH"; then
-    echo "alias menu=$HOME/menu.sh" >> "$CONFIG_BASH"
-    source "$CONFIG_BASH"
-fi
+    if ! [ -f "$CONFIG_BASH" ] || ! grep -q "alias menu=$HOME/menu.sh" "$CONFIG_BASH"; then
+        echo "alias menu=$HOME/menu.sh" >> "$CONFIG_BASH"
+        source "$CONFIG_BASH"
+    fi
 
-check_update
-write_examples
-base_setup
+    check_update
+    write_examples
+    base_setup
 
-while true; do
-    MENU_MAIN=()
-    MENU_MAIN+=("$TAG_MENU_INSTALL" "$LABEL_MENU_INSTALL")
-    check_installed_postfix && MENU_MAIN+=("$TAG_MENU_POSTFIX" "$LABEL_MENU_POSTFIX")
-    check_installed_rspamd && MENU_MAIN+=("$TAG_MENU_RSPAMD" "$LABEL_MENU_RSPAMD")
-    for TAG_ADDON in "${ADDON_CONFIG[@]}"; do
-        if "check_installed_$TAG_ADDON"; then
-            MENU_MAIN+=("$TAG_MENU_ADDON" "$LABEL_MENU_ADDON")
+    while true; do
+        MENU_MAIN=()
+        MENU_MAIN+=("$TAG_MENU_INSTALL" "$LABEL_MENU_INSTALL")
+        check_installed_postfix && MENU_MAIN+=("$TAG_MENU_POSTFIX" "$LABEL_MENU_POSTFIX")
+        check_installed_rspamd && MENU_MAIN+=("$TAG_MENU_RSPAMD" "$LABEL_MENU_RSPAMD")
+        for TAG_ADDON in "${ADDON_CONFIG[@]}"; do
+            if "check_installed_$TAG_ADDON"; then
+                MENU_MAIN+=("$TAG_MENU_ADDON" "$LABEL_MENU_ADDON")
+                break
+            fi
+        done
+        MENU_MAIN+=("$TAG_MENU_MISC" "$LABEL_MENU_MISC")
+        check_installed_logmanager && MENU_MAIN+=("$TAG_MENU_LOG" "$LABEL_MENU_LOG")
+        check_installed_cluster && MENU_MAIN+=("$TAG_SYNC_ALL" "$LABEL_SYNC_ALL")
+
+        exec 3>&1
+        DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Exit' --no-tags --extra-button --extra-label 'Help' --title "$TITLE_MAIN" --menu '' 0 0 0 "${MENU_MAIN[@]}" 2>&1 1>&3)"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            "$DIALOG_RET"
+        elif [ "$RET_CODE" = 3 ]; then
+            show_help "$HELP_MAIN"
+        else
             break
         fi
     done
-    MENU_MAIN+=("$TAG_MENU_MISC" "$LABEL_MENU_MISC")
-    check_installed_logmanager && MENU_MAIN+=("$TAG_MENU_LOG" "$LABEL_MENU_LOG")
-    check_installed_cluster && MENU_MAIN+=("$TAG_SYNC_ALL" "$LABEL_SYNC_ALL")
+    clear
+}
 
-    exec 3>&1
-    DIALOG_RET="$("$DIALOG" --clear --backtitle "$TITLE_MAIN" --cancel-label 'Exit' --no-tags --extra-button --extra-label 'Help' --title "$TITLE_MAIN" --menu '' 0 0 0 "${MENU_MAIN[@]}" 2>&1 1>&3)"
-    RET_CODE="$?"
-    exec 3>&-
-
-    if [ "$RET_CODE" = 0 ]; then
-        "$DIALOG_RET"
-    elif [ "$RET_CODE" = 3 ]; then
-        show_help "$HELP_MAIN"
-    else
-        break
-    fi
-done
-clear
+menu_main 2> "$LOG_MENU"
