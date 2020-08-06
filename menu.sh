@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.33.0 for Postfix
+# menu.sh V1.34.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - error logging
+# - port for Redhat/CentOS
 #
 ###################################################################################################
 
@@ -67,6 +67,33 @@ declare -g -r CONFIG_LOGWATCH='/etc/logwatch/conf/logwatch.conf'
 declare -g -r CONFIG_REDIS='/etc/redis/redis.conf'
 
 ###################################################################################################
+# Distro settings
+declare -g DISTRO INSTALLER
+
+if [ -f '/etc/redhat-release' ]; then
+    DISTRO='redhat'
+    INSTALLER='yum'
+elif [ -f '/etc/debian_version' ]; then
+    DISTRO='debian'
+    INSTALLER='apt'
+fi
+
+###################################################################################################
+# Redhat package/service names
+# missing: postfix-pcre sa-compile spamc libio-string-perl libmaxmind-db-reader-xs-perl
+declare -g -r PACKAGE_REDHAT_SPAMASSASSIN='spamassassin GeoIP GeoIP-data perl-App-cpanminus perl-BSD-Resource perl-DBI perl-Encode-Detect perl-Geo-IP perl-LWP-UserAgent-Determined perl-Mail-DKIM perl-Net-CIDR perl-Digest-SHA perl-Net-Patricia spamassassin perl-Mail-SPF redis perl-Archive-Zip perl-Net-LibIDN perl-IO-Socket-INET6 perl-Geo-IP'
+
+declare -g -r PACKAGE_REDHAT_BIND='bind'
+declare -g -r SERVICE_REDHAT_BIND='named'
+
+###################################################################################################
+# Debian package/service names
+declare -g -r PACKAGE_DEBIAN_SPAMASSASSIN='geoip-bin geoip-database geoip-database-extra cpanminus libbsd-resource-perl libdbi-perl libencode-detect-perl libgeo-ip-perl liblwp-useragent-determined-perl libmail-dkim-perl libnet-cidr-perl libdigest-sha-perl libnet-patricia-perl postfix-pcre sa-compile spamassassin spamc spf-tools-perl redis-server libarchive-zip-perl libio-string-perl libmaxmind-db-reader-perl libmaxmind-db-reader-xs-perl libnet-libidn-perl libio-socket-inet6-perl libgeoip2-perl'
+
+declare -g -r PACKAGE_DEBIAN_BIND='bind9'
+declare -g -r SERVICE_DEBIAN_BIND='bind9'
+
+###################################################################################################
 # Default settings
 declare -g -r DEFAULT_EDITOR='vim'
 
@@ -113,7 +140,7 @@ declare -g -r INSTALL_POSTFIX_PACKAGE='postfix'
 
 # Local DNS resolver
 declare -g -r LABEL_INSTALL_RESOLVER='Local DNS resolver'
-declare -g -r INSTALL_RESOLVER_PACKAGE='bind9'
+declare -g -r INSTALL_RESOLVER_PACKAGE="$(eval echo \"\$PACKAGE_${DISTRO^^}_BIND\")"
 
 # Postfwd
 declare -g -r LABEL_INSTALL_POSTFWD='Postfwd3'
@@ -2397,13 +2424,22 @@ postfwd_sync() {
     ssh mx systemctl reload postfwd &>/dev/null
 }
 
+# reload Bind resolver
+# parameters:
+# none
+# return values:
+# none
+bind_reload() {
+    systemctl reload "$(eval echo \"\$SERVICE_${DISTRO^^}_BIND\")" &>/dev/null
+}
+
 # edit local DNS resolver config
 # parameters:
 # none
 # return values:
 # none
 resolver_config() {
-    edit_config "$CONFIG_RESOLVER" && systemctl reload bind9 &>/dev/null
+    edit_config "$CONFIG_RESOLVER" && bind_reload
 }
 
 # add forwarder IP address to forward zone
@@ -2427,7 +2463,7 @@ add_forwarder() {
         sed -i "/^zone \"$1\" {$/,/^};$/d" "$CONFIG_RESOLVER_FORWARD"
         echo "zone \"$1\" {"$'\n\t''type forward;'$'\n\t''forward only;'$'\n\t'"forwarders { $LIST_FORWARD };"$'\n''};' >> "$CONFIG_RESOLVER_FORWARD"
 
-        systemctl reload bind9 &>/dev/null
+        bind_reload
     fi
 }
 
@@ -2445,7 +2481,7 @@ remove_forwarder() {
     sed -i "/^zone \"$1\" {$/,/^};$/d" "$CONFIG_RESOLVER_FORWARD"
     echo "zone \"$1\" {"$'\n\t''type forward;'$'\n\t''forward only;'$'\n\t'"forwarders { $LIST_FORWARD };"$'\n''};' >> "$CONFIG_RESOLVER_FORWARD"
 
-    systemctl reload bind9 &>/dev/null
+    bind_reload
 }
 
 # edit forward zone
@@ -2511,7 +2547,7 @@ add_forward() {
 
         forward_zone "$FORWARD_NEW"
 
-        systemctl reload bind9 &>/dev/null
+        bind_reload
     fi
 }
 
@@ -2579,7 +2615,7 @@ add_local() {
         echo "zone \"$LOCAL_NEW\" {"$'\n\t''type master;'$'\n\t'"file \"$FILE_ZONE\";"$'\n''};' >> "$CONFIG_RESOLVER_LOCAL"
         echo '$TTL 86400'$'\n'"@   IN SOA  ns.$LOCAL_NEW. hostmaster.$LOCAL_NEW. ("$'\n'"       $(date +%Y%m%d)00   ; serial"$'\n''       3600         ; refresh'$'\n''       1800         ; retry'$'\n''       1209600      ; expire'$'\n''       86400 )      ; minimum'$'\n'"@        IN      NS      ns.$LOCAL_NEW."$'\n''ns       IN      A       127.0.0.1' > "$DIR_ZONE/$FILE_ZONE"
 
-        systemctl reload bind9 &>/dev/null
+        bind_reload
     fi
 }
 
@@ -2669,7 +2705,7 @@ resolver_local() {
             exec 3>&-
 
             if [ "$RET_CODE" = 0 ] && ! [ -z "$DIALOG_RET" ]; then
-                edit_zone "$DIALOG_RET" && systemctl reload bind9 &>/dev/null
+                edit_zone "$DIALOG_RET" && bind_reload
             elif [ "$RET_CODE" = 3 ]; then
                 add_local
             else
@@ -2687,7 +2723,7 @@ resolver_local() {
 resolver_sync() {
     show_wait
     rsync -avzh -e ssh "$CONFIG_RESOLVER" mx:"$CONFIG_RESOLVER" &>/dev/null
-    ssh mx systemctl reload bind9 &>/dev/null
+    ssh mx systemctl reload "$(eval echo \"\$SERVICE_${DISTRO^^}_BIND\")" &>/dev/null
 }
 
 # edit OpenDKIM config
@@ -3006,7 +3042,7 @@ pyzor_enable() {
     printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$PYZOR_SERVICE"
     chmod +x "$PYZOR_SERVICE"
 
-    check_installed_daemonize || apt install -y daemonize &>/dev/null
+    check_installed_daemonize || "$INSTALLER" install -y daemonize &>/dev/null
 
     systemctl daemon-reload
     systemctl start pyzorsocket
@@ -3122,7 +3158,7 @@ razor_enable() {
     printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$RAZOR_SERVICE"
     chmod +x "$RAZOR_SERVICE"
 
-    check_installed_daemonize || apt install -y daemonize &>/dev/null
+    check_installed_daemonize || "$INSTALLER" install -y daemonize &>/dev/null
 
     systemctl daemon-reload
     systemctl start razorsocket
@@ -4098,7 +4134,13 @@ show_firewall() {
 # return values:
 # none
 show_install() {
-    declare -r INFO="$(cat /var/log/apt/history.log)"
+    declare INFO
+
+    if [ "$DISTRO" = 'redhat' ]; then
+        INFO="$(cat /var/log/yum.log)"
+    elif [ "$DISTRO" = 'debian' ]; then
+        INFO="$(cat /var/log/apt/history.log)"
+    fi
 
     show_info 'Install log' "$INFO"
 }
@@ -4110,8 +4152,13 @@ show_install() {
 # none
 show_update() {
     declare INFO
-    
-    INFO="$(apt list --upgradable 2>/dev/null | grep 'upgradable' | awk 'match($0, /([^/]+)\S+ (\S+)/, a) {print a[1]" ("a[2]")"}')"
+
+    if [ "$DISTRO" = 'redhat' ]; then
+        INFO="$(yum -q list updates 2>/dev/null | sed '1d' | awk 'match($0, /(\S+)\s+(\S+)/, a) {print a[1]" ("a[2]")"}')"
+    elif [ "$DISTRO" = 'debian' ]; then
+        INFO="$(apt list --upgradable 2>/dev/null | grep 'upgradable' | awk 'match($0, /([^/]+)\S+ (\S+)/, a) {print a[1]" ("a[2]")"}')"
+    fi
+
     [ -z "$INFO" ] && INFO='No pending updates'
 
     show_info 'Pending updates' "$INFO"
@@ -4490,7 +4537,7 @@ log_action() {
 # none
 install_postfix() {
     {
-        DEBIAN_FRONTEND=noninteractive apt-get -yq install postfix
+        DEBIAN_FRONTEND=noninteractive "$INSTALLER" -yq install postfix
 
         postconf 'inet_protocols=ipv4'
         postconf 'mynetworks=127.0.0.0/8'
@@ -4522,12 +4569,12 @@ install_resolver() {
     '
 
     {
-        apt install -y bind9
+        "$INSTALLER" install -y "$(eval echo \"\$PACKAGE_${DISTRO^^}_BIND\")"
 
         printf '%s' $PACKED_CONFIG | base64 -d | gunzip > "$CONFIG_RESOLVER"
         mkdir -p /var/log/named
         touch "$CONFIG_RESOLVER_FORWARD" "$CONFIG_RESOLVER_LOCAL"
-        systemctl restart bind9
+        systemctl restart "$(eval echo \"\$SERVICE_${DISTRO^^}_BIND\")"
     } 2>&1 | show_output 'Installing local DNS resolver'
 }
 
@@ -4550,7 +4597,7 @@ install_postfwd() {
         wget https://raw.githubusercontent.com/postfwd/postfwd/master/etc/postfwd.cf.sample -O - > /etc/postfwd.cf
         chmod +x /etc/init.d/postfwd
 
-        apt install -y libnet-server-perl libnet-dns-perl
+        "$INSTALLER" install -y libnet-server-perl libnet-dns-perl
 
         systemctl daemon-reload
         systemctl start postfwd
@@ -4661,7 +4708,7 @@ install_spamassassin() {
     FJDE780r0G3A+hMNdJVIq8SFkJQWHziaE0qiAAAA
     '
     {
-        apt install -y geoip-bin geoip-database geoip-database-extra cpanminus libbsd-resource-perl libdbi-perl libencode-detect-perl libgeo-ip-perl liblwp-useragent-determined-perl libmail-dkim-perl libnet-cidr-perl libdigest-sha-perl libnet-patricia-perl postfix postfix-pcre sa-compile spamassassin spamc spf-tools-perl redis-server libarchive-zip-perl libio-string-perl libmaxmind-db-reader-perl libmaxmind-db-reader-xs-perl libnet-libidn-perl libio-socket-inet6-perl libgeoip2-perl
+        "$INSTALLER" install -y $(eval echo \"\$PACKAGE_${DISTRO^^}_SPAMASSASSIN\")
 
         grep -q '^spamd:' /etc/group || addgroup spamd
         grep -q '^spamd:' /etc/passwd || adduser --system --disabled-login --ingroup spamd spamd
@@ -4728,17 +4775,26 @@ install_rspamd() {
     declare CODENAME
 
     {
-        apt install -y lsb-release
+        if [ "$DISTRO" = 'redhat' ]; then
+            curl https://rspamd.com/rpm-stable/centos-7/rspamd.repo > /etc/yum.repos.d/rspamd.repo
 
-        CODENAME="$(lsb_release -c -s)"
+            rpm --import https://rspamd.com/rpm-stable/gpg.key
 
-        wget https://rspamd.com/apt-stable/gpg.key -O - | apt-key add -
+            yum update
+            yum install -y redis rspamd
+        elif [ "$DISTRO" = 'debian' ]; then
+            apt install -y lsb-release
 
-        echo "deb [arch=amd64] http://rspamd.com/apt-stable/ $CODENAME main" > /etc/apt/sources.list.d/rspamd.list
-        echo "deb-src [arch=amd64] http://rspamd.com/apt-stable/ $CODENAME main" >> /etc/apt/sources.list.d/rspamd.list
+            CODENAME="$(lsb_release -c -s)"
 
-        apt update
-        apt install -y redis-server rspamd
+            wget https://rspamd.com/apt-stable/gpg.key -O - | apt-key add -
+
+            echo "deb [arch=amd64] http://rspamd.com/apt-stable/ $CODENAME main" > /etc/apt/sources.list.d/rspamd.list
+            echo "deb-src [arch=amd64] http://rspamd.com/apt-stable/ $CODENAME main" >> /etc/apt/sources.list.d/rspamd.list
+
+            apt update
+            apt install -y redis-server rspamd
+        fi
 
         echo 'read_servers = "127.0.0.1";' > "$CONFIG_RSPAMD_REDIS"
         echo 'write_servers = "127.0.0.1";' > "$CONFIG_RSPAMD_REDIS"
@@ -4760,7 +4816,7 @@ install_rspamd() {
 # return values:
 # none
 install_pyzor() {
-    apt install -y pyzor 2>&1 | show_output 'Installing Pyzor'
+    "$INSTALLER" install -y pyzor 2>&1 | show_output 'Installing Pyzor'
 }
 
 # install Razor
@@ -4769,7 +4825,7 @@ install_pyzor() {
 # return values:
 # none
 install_razor() {
-    apt install -y razor 2>&1 | show_output 'Installing Razor'
+    "$INSTALLER" install -y razor 2>&1 | show_output 'Installing Razor'
 }
 
 # install Oletools
@@ -4792,7 +4848,7 @@ install_oletools() {
 # none
 install_fuzzyocr() {
     {
-        apt install -y fuzzyocr
+        "$INSTALLER" install -y fuzzyocr
     } 2>&1 | show_output 'Installing FuzzyOCR'
 }
 
@@ -4823,7 +4879,7 @@ install_clamav() {
     '
 
     {
-        apt install -y clamav clamav-daemon clamav-unofficial-sigs
+        "$INSTALLER" install -y clamav clamav-daemon clamav-unofficial-sigs
         printf '%s' $PACKED_CONFIG | base64 -d | gunzip > /etc/clamav/clamd.conf
         systemctl clamav-daemon restart
     } 2>&1 | show_output 'Installing ClamAV'
@@ -4915,7 +4971,7 @@ install_sophosav() {
             "$DIR_TMP"/sophos-av/install.sh
 
             {
-                apt install -y file
+                "$INSTALLER" install -y file
 
                 ln -s /opt/sophos-av/lib64/libsavi.so.3 /usr/local/lib/libsavi.so.3
                 ln -s /opt/sophos-av/lib64/libssp.so.0 /usr/local/lib/libssp.so.0
@@ -4946,8 +5002,8 @@ install_sophosav() {
 # none
 install_fail2ban() {
     {
-        rm -f /etc/apt/preferences.d/apt-listbugs
-        apt install -y fail2ban
+        [ -f /etc/apt/preferences.d/apt-listbugs ] && rm -f /etc/apt/preferences.d/apt-listbugs
+        "$INSTALLER" install -y fail2ban
     } 2>&1 | show_output 'Installing Fail2ban'
 }
 
@@ -4957,7 +5013,7 @@ install_fail2ban() {
 # return values:
 # none
 install_dkim() {
-    apt install -y opendkim 2>&1 | show_output 'Installing OpenDKIM'
+    "$INSTALLER" install -y opendkim 2>&1 | show_output 'Installing OpenDKIM'
 }
 
 # install SPF-check
@@ -4966,7 +5022,7 @@ install_dkim() {
 # return values:
 # none
 install_spf() {
-    apt install -y postfix-policyd-spf-python 2>&1 | show_output 'Installing SPF-check'
+    "$INSTALLER" install -y postfix-policyd-spf-python 2>&1 | show_output 'Installing SPF-check'
 }
 
 # install Let's Encrypt Certificate
@@ -4985,7 +5041,7 @@ install_acme() {
     '
 
     {
-        apt install -y socat
+        "$INSTALLER" install -y socat
         wget -O - https://get.acme.sh 2>/dev/null | sh
         /root/.acme.sh/acme.sh --uninstall-cronjob
         iptables -I INPUT 1 -p tcp -m tcp --dport 80 -j ACCEPT
@@ -5009,7 +5065,7 @@ install_acme() {
 # return values:
 # none
 install_logwatch() {
-    apt install -y logwatch 2>&1 | show_output 'Installing Logwatch'
+    "$INSTALLER" install -y logwatch 2>&1 | show_output 'Installing Logwatch'
 }
 
 # install log-manager
@@ -5119,7 +5175,7 @@ install_cluster() {
                 if [ -z "$PASSWORD" ]; then
                     ssh-copy-id -p "$SSH_PORT" -o 'StrictHostKeyChecking=accept-new' -i "$SSH_KEY" "root@$IP_ADDRESS" &>/dev/null
                 else
-                    which sshpass &>/dev/null || apt install -y sshpass &>/dev/null
+                    which sshpass &>/dev/null || "$INSTALLER" install -y sshpass &>/dev/null
 
                     sshpass -p "$PASSWORD" ssh-copy-id -p "$SSH_PORT" -o 'StrictHostKeyChecking=accept-new' -i "$SSH_KEY" "root@$IP_ADDRESS" &>/dev/null
                 fi
@@ -5137,6 +5193,42 @@ install_cluster() {
     fi
 }
 
+# determine installed package version
+# parameters:
+# package name
+# return values:
+# installed package version
+version_current() {
+    declare PACKAGE_INFO
+
+    if [ "$DISTRO" = 'redhat' ]; then
+        PACKAGE_INFO="$(yum -q info "$1" | sed -n '/^Installed Packages$/,/^$/p')"
+
+        echo "$(echo "$PACKAGE_INFO" | grep -E '^(Version)' | awk '{print $3}').$(echo "$PACKAGE_INFO" | grep -E '^(Release)' | awk '{print $3}')"
+    elif [ "$DISTRO" = 'debian' ]; then
+        apt-cache policy "$1" | sed -n '2p' | sed -E 's/^.+\s+//'
+    fi
+}
+
+# determine available package version
+# parameters:
+# package name
+# return values:
+# available package version
+version_available() {
+    declare PACKAGE_INFO
+
+    if [ "$DISTRO" = 'redhat' ]; then
+        PACKAGE_INFO="$(yum -q info "$1" | sed -n '/^Available Packages$/,/^$/p')"
+
+        [ -z "$PACKAGE_INFO" ] && PACKAGE_INFO="$(yum -q info "$1" | sed -n '/^Installed Packages$/,/^$/p')"
+
+        echo "$(echo "$PACKAGE_INFO" | grep -E '^(Version)' | awk '{print $3}').$(echo "$PACKAGE_INFO" | grep -E '^(Release)' | awk '{print $3}')"
+    elif [ "$DISTRO" = 'debian' ]; then
+        apt-cache policy "$1" | sed -n '3p' | sed -E 's/^.+\s+//'
+    fi
+}
+
 # select feature to install in dialog menu
 # parameters:
 # none
@@ -5144,7 +5236,7 @@ install_cluster() {
 # none
 menu_install() {
     declare -a MENU_INSTALL
-    declare NAME_PACKAGE PACKAGE_INFO 
+    declare NAME_PACKAGE VERSION_CURRENT VERSION_AVAILABLE DIALOG_RET RET_CODE
 
     while true; do
         MENU_INSTALL=()
@@ -5167,11 +5259,10 @@ menu_install() {
                         MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") (installed)" 'off')
                     fi
                 else
-                    PACKAGE_INFO="$(apt-cache policy "$NAME_PACKAGE")"
-                    VERSION_CURRENT="$(echo "$PACKAGE_INFO" | sed -n '2p' | sed -E 's/^.+\s+//')"
-                    VERSION_AVAILABLE="$(echo "$PACKAGE_INFO" | sed -n '3p' | sed -E 's/^.+\s+//')"
+                    VERSION_CURRENT="$(version_current "$NAME_PACKAGE")"
+                    VERSION_AVAILABLE="$(version_available "$NAME_PACKAGE")"
 
-                    if [ "$VERSION_CURRENT" = "$VERSION_AVAILABLE" ]; then
+                    if [ "$VERSION_AVAILABLE" = "$VERSION_CURRENT" ]; then
                         MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed)" 'off')
                     else
                         MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed, $VERSION_AVAILABLE available)" 'off')
@@ -5197,11 +5288,10 @@ menu_install() {
 
                         [ "$?" = 0 ] && "install_$FEATURE"
                     else
-                        PACKAGE_INFO="$(apt-cache policy "$NAME_PACKAGE")"
-                        VERSION_CURRENT="$(echo "$PACKAGE_INFO" | sed -n '2p' | sed -E 's/^.+\s+//')"
-                        VERSION_AVAILABLE="$(echo "$PACKAGE_INFO" | sed -n '3p' | sed -E 's/^.+\s+//')"
+                        VERSION_CURRENT="$(version_current "$NAME_PACKAGE")"
+                        VERSION_AVAILABLE="$(version_available "$NAME_PACKAGE")"
 
-                        if [ "$VERSION_CURRENT" = "$VERSION_AVAILABLE" ]; then
+                        if [ "$VERSION_AVAILABLE" = "$VERSION_CURRENT" ]; then
                             get_yesno "'$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\")' already installed. Re-install?"
 
                             [ "$?" = 0 ] && "install_$FEATURE"
@@ -5211,7 +5301,7 @@ menu_install() {
                             if [ "$?" = 0 ]; then
                                 show_wait
 
-                                apt update "$NAME_PACKAGE" 2>&1 | show_output "Updating $(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\")"
+                                "$INSTALLER" update -y "$NAME_PACKAGE" 2>&1 | show_output "Updating $(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\")"
                             fi
                         fi
                     fi
@@ -5572,7 +5662,9 @@ menu_misc() {
         MENU_MISC+=("$TAG_EDITOR" "$LABEL_EDITOR")
         MENU_MISC+=("$TAG_EMAIL" "$LABEL_EMAIL")
         MENU_MISC+=("$TAG_ADMIN" "$LABEL_ADMIN")
-        automatic_update_status && MENU_MISC+=("$TAG_UPDATES" "$LABEL_UPDATES (enabled)") || MENU_MISC+=("$TAG_UPDATES" "$LABEL_UPDATES (disabled)")
+        if [ "$DISTRO" = 'debian' ]; then
+            automatic_update_status && MENU_MISC+=("$TAG_UPDATES" "$LABEL_UPDATES (enabled)") || MENU_MISC+=("$TAG_UPDATES" "$LABEL_UPDATES (disabled)")
+        fi
         pwauth_status && MENU_MISC+=("$TAG_PWAUTH" "$LABEL_PWAUTH (enabled)") || MENU_MISC+=("$TAG_PWAUTH" "$LABEL_PWAUTH (disabled)")
         MENU_MISC+=("$TAG_CONNECTIONS" "$LABEL_CONNECTIONS")
         MENU_MISC+=("$TAG_FIREWALL" "$LABEL_FIREWALL")
@@ -5801,7 +5893,7 @@ write_examples() {
 # return values:
 # none
 install_dependency() {
-    which "$1" &>/dev/null || apt install -y $2 &>/dev/null
+    which "$1" &>/dev/null || "$INSTALLER" install -y $2 &>/dev/null
 }
 
 # perform basic setup
@@ -5818,7 +5910,7 @@ base_setup() {
     done
 
     # for Debian-10 installing pip3 does NOT install python3-setuptools
-    [ -z "$(pip3 list 2>/dev/null | grep '^setuptools')" ] && apt install -y python3-setuptools &>/dev/null
+    pip3 list 2>/dev/null | grep -q '^setuptools' || "$INSTALLER" install -y python3-setuptools &>/dev/null
 
     if which postfix &>/dev/null; then
         [ -f /etc/postfix/makedefs.out ] && rm -f /etc/postfix/makedefs.out &>/dev/null
@@ -5856,11 +5948,13 @@ menu_main() {
     declare -a MENU_MAIN
     declare DIALOG_RET RET_CODE TAG_ADDON
 
-    if ! check_compatible; then
-        show_info 'Incompatible Linux distro' 'This tool only supports Ubuntu, Debian and SUSE.'
+    if [ -z "$DISTRO" ]; then
+        show_info 'Incompatible Linux distro' 'This tool only supports Redhat and Debian (and compatible).'
         clear
         exit 1
     fi
+
+    [ -x "$0" ] || chmod u+x "$0"
 
     if ! [ -f "$CONFIG_BASH" ] || ! grep -q "alias menu=$HOME/menu.sh" "$CONFIG_BASH"; then
         echo "alias menu=$HOME/menu.sh" >> "$CONFIG_BASH"
