@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.34.0 for Postfix
+# menu.sh V1.35.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - port for Redhat/CentOS
+# - bugfix
 #
 ###################################################################################################
 
@@ -80,7 +80,6 @@ fi
 
 ###################################################################################################
 # Redhat package/service names
-# missing: postfix-pcre sa-compile spamc libio-string-perl libmaxmind-db-reader-xs-perl
 declare -g -r PACKAGE_REDHAT_SPAMASSASSIN='spamassassin GeoIP GeoIP-data perl-App-cpanminus perl-BSD-Resource perl-DBI perl-Encode-Detect perl-Geo-IP perl-LWP-UserAgent-Determined perl-Mail-DKIM perl-Net-CIDR perl-Digest-SHA perl-Net-Patricia spamassassin perl-Mail-SPF redis perl-Archive-Zip perl-Net-LibIDN perl-IO-Socket-INET6 perl-Geo-IP'
 
 declare -g -r PACKAGE_REDHAT_BIND='bind'
@@ -108,6 +107,7 @@ DEPENDENCY+=('gcc' 'gcc')
 DEPENDENCY+=('pip3' 'python3-pip python3-setuptools python3-wheel')
 DEPENDENCY+=('wget' 'wget')
 DEPENDENCY+=('vim' 'vim')
+DEPENDENCY+=('cpan' 'cpan')
 
 ###################################################################################################
 # Install features
@@ -122,7 +122,7 @@ INSTALL_FEATURE+=('rspamd')
 INSTALL_FEATURE+=('pyzor')
 INSTALL_FEATURE+=('razor')
 INSTALL_FEATURE+=('oletools')
-INSTALL_FEATURE+=('fuzzyocr')
+[ "$DISTRO" = 'debian' ] && INSTALL_FEATURE+=('fuzzyocr')
 INSTALL_FEATURE+=('clamav')
 INSTALL_FEATURE+=('sophosav')
 INSTALL_FEATURE+=('fail2ban')
@@ -161,7 +161,7 @@ declare -g -r INSTALL_PYZOR_PACKAGE='pyzor'
 
 # Razor
 declare -g -r LABEL_INSTALL_RAZOR='Razor'
-declare -g -r INSTALL_RAZOR_PACKAGE='razor'
+[ "$DISTRO" = 'debian' ] && declare -g -r INSTALL_RAZOR_PACKAGE='razor'
 
 # Oletools
 declare -g -r LABEL_INSTALL_OLETOOLS='Oletools'
@@ -1260,7 +1260,7 @@ check_installed_oletools() {
 # return values:
 # error code - 0 for installed, 1 for not installed
 check_installed_fuzzyocr() {
-    yes | cpan -l 2>/dev/null | grep -q '^FuzzyOcr\s' && return 0 || return 1
+    cpan -l 2>/dev/null | grep -q '^FuzzyOcr\s' && return 0 || return 1
 }
 
 # check whether ClamAV is installed
@@ -1474,7 +1474,7 @@ tls_enable() {
 
         if [ "$RET_CODE" = 0 ]; then
             if ! [ -f "$FILE_DHPARAM" ]; then
-                "$DIALOG" --backtitle "$TITLE_MAIN" --title '' --infobox 'Generating 2048-bit Diffie-Hellman param file.'$'\n\n''This may take a longer...' 5 50
+                "$DIALOG" --backtitle "$TITLE_MAIN" --title '' --infobox 'Generating 2048-bit Diffie-Hellman param file.'$'\n\n''This may take a bit longer...' 5 50
 
                 openssl dhparam -out "$FILE_DHPARAM" 2048 &>/dev/null
             fi
@@ -4747,7 +4747,7 @@ install_spamassassin() {
 
         wget https://www.pccc.com/downloads/SpamAssassin/contrib/KAM.cf -O /etc/spamassassin/KAM.cf
 
-        echo | cpan Digest::SHA1
+        cpan Digest::SHA1
 
         spamassassin_restart
     } 2>&1 | show_output 'Installing Spamassassin'
@@ -4780,8 +4780,8 @@ install_rspamd() {
 
             rpm --import https://rspamd.com/rpm-stable/gpg.key
 
-            yum update
-            yum install -y redis rspamd
+            yum update -y
+            yum install -y redis rspamd patch
         elif [ "$DISTRO" = 'debian' ]; then
             apt install -y lsb-release
 
@@ -4825,7 +4825,13 @@ install_pyzor() {
 # return values:
 # none
 install_razor() {
-    "$INSTALLER" install -y razor 2>&1 | show_output 'Installing Razor'
+    {
+        if [ "$DISTRO" = 'redhat' ]; then
+            cpan Razor2:Client:Agent
+        elif [ "$DISTRO" = 'debian' ]; then
+            apt install -y razor
+        fi
+    } 2>&1 | show_output 'Installing Razor'
 }
 
 # install Oletools
@@ -5204,7 +5210,7 @@ version_current() {
     if [ "$DISTRO" = 'redhat' ]; then
         PACKAGE_INFO="$(yum -q info "$1" | sed -n '/^Installed Packages$/,/^$/p')"
 
-        echo "$(echo "$PACKAGE_INFO" | grep -E '^(Version)' | awk '{print $3}').$(echo "$PACKAGE_INFO" | grep -E '^(Release)' | awk '{print $3}')"
+        [ -z "$PACKAGE_INFO" ] || echo "$(echo "$PACKAGE_INFO" | grep -E '^(Version)' | awk '{print $3}').$(echo "$PACKAGE_INFO" | grep -E '^(Release)' | awk '{print $3}')"
     elif [ "$DISTRO" = 'debian' ]; then
         apt-cache policy "$1" | sed -n '2p' | sed -E 's/^.+\s+//'
     fi
@@ -5221,9 +5227,7 @@ version_available() {
     if [ "$DISTRO" = 'redhat' ]; then
         PACKAGE_INFO="$(yum -q info "$1" | sed -n '/^Available Packages$/,/^$/p')"
 
-        [ -z "$PACKAGE_INFO" ] && PACKAGE_INFO="$(yum -q info "$1" | sed -n '/^Installed Packages$/,/^$/p')"
-
-        echo "$(echo "$PACKAGE_INFO" | grep -E '^(Version)' | awk '{print $3}').$(echo "$PACKAGE_INFO" | grep -E '^(Release)' | awk '{print $3}')"
+        [ -z "$PACKAGE_INFO" ] || echo "$(echo "$PACKAGE_INFO" | grep -E '^(Version)' | awk '{print $3}').$(echo "$PACKAGE_INFO" | grep -E '^(Release)' | awk '{print $3}')"
     elif [ "$DISTRO" = 'debian' ]; then
         apt-cache policy "$1" | sed -n '3p' | sed -E 's/^.+\s+//'
     fi
@@ -5250,7 +5254,7 @@ menu_install() {
                         VERSION_CURRENT="$(check_version_$FEATURE)"
                         VERSION_AVAILABLE="$(check_update_$FEATURE)"
 
-                        if [ "$VERSION_CURRENT" = "$VERSION_AVAILABLE" ]; then
+                        if [ -z "$VERSION_AVAILABLE" ] || [ "$VERSION_CURRENT" = "$VERSION_AVAILABLE" ]; then
                             MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed)" 'off')
                         else
                             MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed, $VERSION_AVAILABLE available)" 'off')
@@ -5262,7 +5266,7 @@ menu_install() {
                     VERSION_CURRENT="$(version_current "$NAME_PACKAGE")"
                     VERSION_AVAILABLE="$(version_available "$NAME_PACKAGE")"
 
-                    if [ "$VERSION_AVAILABLE" = "$VERSION_CURRENT" ]; then
+                    if [ -z "$VERSION_AVAILABLE" ] || [ "$VERSION_AVAILABLE" = "$VERSION_CURRENT" ]; then
                         MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed)" 'off')
                     else
                         MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed, $VERSION_AVAILABLE available)" 'off')
@@ -5291,7 +5295,7 @@ menu_install() {
                         VERSION_CURRENT="$(version_current "$NAME_PACKAGE")"
                         VERSION_AVAILABLE="$(version_available "$NAME_PACKAGE")"
 
-                        if [ "$VERSION_AVAILABLE" = "$VERSION_CURRENT" ]; then
+                        if [ -z "$VERSION_AVAILABLE" ] || [ "$VERSION_AVAILABLE" = "$VERSION_CURRENT" ]; then
                             get_yesno "'$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\")' already installed. Re-install?"
 
                             [ "$?" = 0 ] && "install_$FEATURE"
@@ -5905,9 +5909,16 @@ base_setup() {
     clear
     echo 'Performing base setup. This may take a while...'
 
+    if [ "$DISTRO" = 'redhat' ]; then
+        yum install -y epel-release &>/dev/null
+        yum update -y &>/dev/null
+    fi
+
     for COUNTER in $(seq 0 "$(expr "${#DEPENDENCY[@]}" / 2 - 1)"); do
         install_dependency "${DEPENDENCY[$(expr "$COUNTER" \* 2)]}" "${DEPENDENCY[$(expr "$COUNTER" \* 2 + 1)]}"
     done
+
+    echo | cpan &>/dev/null
 
     # for Debian-10 installing pip3 does NOT install python3-setuptools
     pip3 list 2>/dev/null | grep -q '^setuptools' || "$INSTALLER" install -y python3-setuptools &>/dev/null
