@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.35.0 for Postfix
+# menu.sh V1.36.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -85,12 +85,20 @@ declare -g -r PACKAGE_REDHAT_SPAMASSASSIN='spamassassin GeoIP GeoIP-data perl-Ap
 declare -g -r PACKAGE_REDHAT_BIND='bind'
 declare -g -r SERVICE_REDHAT_BIND='named'
 
+declare -g -r PACKAGE_REDHAT_POSTFWD='perl-Sys-Syslog perl-Net-Server perl-Net-DNS'
+
+declare -g -r PACKAGE_REDHAT_SPF='pypolicyd-spf'
+
 ###################################################################################################
 # Debian package/service names
 declare -g -r PACKAGE_DEBIAN_SPAMASSASSIN='geoip-bin geoip-database geoip-database-extra cpanminus libbsd-resource-perl libdbi-perl libencode-detect-perl libgeo-ip-perl liblwp-useragent-determined-perl libmail-dkim-perl libnet-cidr-perl libdigest-sha-perl libnet-patricia-perl postfix-pcre sa-compile spamassassin spamc spf-tools-perl redis-server libarchive-zip-perl libio-string-perl libmaxmind-db-reader-perl libmaxmind-db-reader-xs-perl libnet-libidn-perl libio-socket-inet6-perl libgeoip2-perl'
 
 declare -g -r PACKAGE_DEBIAN_BIND='bind9'
 declare -g -r SERVICE_DEBIAN_BIND='bind9'
+
+declare -g -r PACKAGE_DEBIAN_POSTFWD='libnet-server-perl libnet-dns-perl'
+
+declare -g -r PACKAGE_DEBIAN_SPF='postfix-policyd-spf-python'
 
 ###################################################################################################
 # Default settings
@@ -108,6 +116,7 @@ DEPENDENCY+=('pip3' 'python3-pip python3-setuptools python3-wheel')
 DEPENDENCY+=('wget' 'wget')
 DEPENDENCY+=('vim' 'vim')
 DEPENDENCY+=('cpan' 'cpan')
+DEPENDENCY+=('dig' 'bind-utils')
 
 ###################################################################################################
 # Install features
@@ -157,7 +166,6 @@ declare -g -r INSTALL_RSPAMD_PACKAGE='rspamd'
 
 # Pyzor
 declare -g -r LABEL_INSTALL_PYZOR='Pyzor'
-declare -g -r INSTALL_PYZOR_PACKAGE='pyzor'
 
 # Razor
 declare -g -r LABEL_INSTALL_RAZOR='Razor'
@@ -188,7 +196,7 @@ declare -g -r INSTALL_DKIM_PACKAGE='opendkim'
 
 # SPF-Check
 declare -g -r LABEL_INSTALL_SPF='SPF-check'
-declare -g -r INSTALL_SPF_PACKAGE='postfix-policyd-spf-python'
+declare -g -r INSTALL_SPF_PACKAGE="$(eval echo \"\$PACKAGE_${DISTRO^^}_SPF\")"
 
 # Let's Encrypt Certificate
 declare -g -r LABEL_INSTALL_ACME="Let's Encrypt Certificate"
@@ -1173,6 +1181,32 @@ del_crontab() {
     crontab -l 2>/dev/null | grep -v "^$(echo "$1" | sed 's/\*/\\\*/g')$" | crontab -
 }
 
+# enable SysV service
+# parameters:
+# $1 - service name
+# return values:
+# none
+enable_service() {
+    if [ "$DISTRO" = 'redhat' ]; then
+        chkconfig "$1" on
+    elif [ "$DISTRO" = 'debian' ]; then
+        update-rc.d "$2" defaults
+    fi
+}
+
+# disable SysV service
+# parameters:
+# $1 - service name
+# return values:
+# none
+disable_service() {
+    if [ "$DISTRO" = 'redhat' ]; then
+        chkconfig "$1" off
+    elif [ "$DISTRO" = 'debian' ]; then
+        update-rc.d "$1" remove
+    fi
+}
+
 # check whether Postfix is installed
 # parameters:
 # none
@@ -1377,60 +1411,6 @@ check_installed_daemonize() {
 # error code - 0 for peer available, 1 for not available
 check_installed_plugin() {
     check_installed_postfwd || check_installed_dkim || check_installed_spf
-}
-
-# check Postfwd version
-# parameters:
-# none
-# return values:
-# stdout - version number
-check_version_postfwd() {
-    /usr/local/postfwd/sbin/postfwd -u postfwd -g postfwd --version | awk '{print $2}'
-}
-
-# check for update of Postfwd
-# parameters:
-# none
-# return values:
-# stdout - version number of update
-check_update_postfwd() {
-    wget "$INSTALL_POSTFWD_LINK" -O - 2>/dev/null | grep '^our $VERSION' | awk 'match($0, /= "([^"]+)";/, a) {print a[1]}'
-}
-
-# check Oletools version
-# parameters:
-# none
-# return values:
-# stdout - version number
-check_version_oletools() {
-    olevba3 | head -1 | awk '{print $2}'
-}
-
-# check for update of Oletools
-# parameters:
-# none
-# return values:
-# stdout - version number of update
-check_update_oletools() {
-    pip3 list --outdated --format=columns 2>/dev/null | grep '^oletools\s' | awk '{print $3}'
-}
-
-# check ClamAV version
-# parameters:
-# none
-# return values:
-# stdout - version number
-check_version_clamav() {
-    apt-cache policy clamav | sed -n '2p' | sed -E 's/^.+\s+//'
-}
-
-# check for update of ClamAV
-# parameters:
-# none
-# return values:
-# stdout - version number of update
-check_update_clamav() {
-    apt-cache policy clamav | sed -n '3p' | sed -E 's/^.+\s+//'
 }
 
 ###################################################################################################
@@ -3046,7 +3026,7 @@ pyzor_enable() {
 
     systemctl daemon-reload
     systemctl start pyzorsocket
-    update-rc.d pyzorsocket defaults
+    enable_service pyzorsocket
 }
 
 # disable Pyzor
@@ -3059,7 +3039,7 @@ pyzor_disable() {
     sed -i 'H;/^symbols = {$/h;/^}$/!d;x;/\n\t"PYZOR" {/d' "$CONFIG_RSPAMD_SIGNATURES"
     [ "$(rspamd_feature_status 'razor')" = 'off' ] && sed -i '/^group "signatures" {$/,/^}$/d' "$CONFIG_RSPAMD_GROUPS"
 
-    update-rc.d pyzorsocket remove
+    disable_service pyzorsocket
     systemctl stop pyzorsocket
 
     rm -rf "$PYZOR_PLUGIN" "$PYZOR_DIR" "$PYZOR_SERVICE"
@@ -3162,7 +3142,7 @@ razor_enable() {
 
     systemctl daemon-reload
     systemctl start razorsocket
-    update-rc.d razorsocket defaults
+    enable_service razorsocket
 }
 
 # disable Razor
@@ -3175,7 +3155,7 @@ razor_disable() {
     sed -i 'H;/^symbols = {$/h;/^}$/!d;x;/\n\t"RAZOR" {/d' "$CONFIG_RSPAMD_SIGNATURES"
     [ "$(rspamd_feature_status 'pyzor')" = 'off' ] && sed -i '/^group "signatures" {$/,/^}$/d' "$CONFIG_RSPAMD_GROUPS"
 
-    update-rc.d razorsocket remove
+    disable_service razorsocket
     systemctl stop razorsocket
 
     rm -rf "$RAZOR_PLUGIN" "$RAZOR_DIR" "$RAZOR_SERVICE"
@@ -3220,7 +3200,7 @@ oletools_enable() {
     wget https://raw.githubusercontent.com/HeinleinSupport/olefy/master/olefy.service -O "$OLETOOLS_SERVICE" 2>/dev/null
 
     systemctl daemon-reload
-    systemctl enable olefy.service
+    systemctl enable olefy.service &>/dev/null
     systemctl start olefy.service
 }
 
@@ -3233,7 +3213,7 @@ oletools_disable() {
     sed -i '/^oletools {$/,/^}$/d' "$CONFIG_RSPAMD_EXTERNAL"
 
     systemctl stop olefy.service
-    systemctl disable olefy.service
+    systemctl disable olefy.service &>/dev/null
 
     rm -rf "$OLETOOLS_SCRIPT" "$OLETOOLS_CONFIG" "$OLETOOLS_SERVICE"
     userdel -r "$OLETOOLS_USER" &>/dev/null
@@ -4537,7 +4517,7 @@ log_action() {
 # none
 install_postfix() {
     {
-        DEBIAN_FRONTEND=noninteractive "$INSTALLER" -yq install postfix
+        DEBIAN_FRONTEND=noninteractive "$INSTALLER" -y -q install postfix
 
         postconf 'inet_protocols=ipv4'
         postconf 'mynetworks=127.0.0.0/8'
@@ -4593,15 +4573,15 @@ install_postfwd() {
         mkdir -p /usr/local/postfwd/sbin
         wget "$INSTALL_POSTFWD_LINK" -O - > /usr/local/postfwd/sbin/postfwd
         chmod +x /usr/local/postfwd/sbin/postfwd
-        wget https://raw.githubusercontent.com/postfwd/postfwd/master/bin/postfwd-script.sh -O - | sed "s/nobody/$POSTFWD_USER/" > /etc/init.d/postfwd
+        wget https://raw.githubusercontent.com/postfwd/postfwd/master/bin/postfwd-script.sh -O - | sed "s/nobody/$POSTFWD_USER/" | sed '1a # chkconfig: - 85 15' > /etc/init.d/postfwd
         wget https://raw.githubusercontent.com/postfwd/postfwd/master/etc/postfwd.cf.sample -O - > /etc/postfwd.cf
         chmod +x /etc/init.d/postfwd
 
-        "$INSTALLER" install -y libnet-server-perl libnet-dns-perl
+        "$INSTALLER" install -y $(eval echo \"\$PACKAGE_${DISTRO^^}_POSTFWD\")
 
         systemctl daemon-reload
         systemctl start postfwd
-        update-rc.d postfwd defaults
+        enable_service postfwd
     } 2>&1 | show_output 'Installing Postfwd'
 }
 
@@ -4816,7 +4796,7 @@ install_rspamd() {
 # return values:
 # none
 install_pyzor() {
-    "$INSTALLER" install -y pyzor 2>&1 | show_output 'Installing Pyzor'
+    pip3 install pyzor 2>&1 | show_output 'Installing Pyzor'
 }
 
 # install Razor
@@ -5028,7 +5008,7 @@ install_dkim() {
 # return values:
 # none
 install_spf() {
-    "$INSTALLER" install -y postfix-policyd-spf-python 2>&1 | show_output 'Installing SPF-check'
+    "$INSTALLER" install -y $(eval echo \"\$PACKAGE_${DISTRO^^}_SPF\") 2>&1 | show_output 'Installing SPF-check'
 }
 
 # install Let's Encrypt Certificate
@@ -5246,35 +5226,7 @@ menu_install() {
         MENU_INSTALL=()
 
         for FEATURE in "${INSTALL_FEATURE[@]}"; do
-            if "check_installed_${FEATURE}"; then
-                NAME_PACKAGE="$(eval echo \"\$INSTALL_${FEATURE^^}_PACKAGE\")"
-
-                if [ -z "$NAME_PACKAGE" ]; then
-                    if [ "$(eval echo \"\$INSTALL_${FEATURE^^}_CUSTOM\")" = 1 ]; then
-                        VERSION_CURRENT="$(check_version_$FEATURE)"
-                        VERSION_AVAILABLE="$(check_update_$FEATURE)"
-
-                        if [ -z "$VERSION_AVAILABLE" ] || [ "$VERSION_CURRENT" = "$VERSION_AVAILABLE" ]; then
-                            MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed)" 'off')
-                        else
-                            MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed, $VERSION_AVAILABLE available)" 'off')
-                        fi
-                    else
-                        MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") (installed)" 'off')
-                    fi
-                else
-                    VERSION_CURRENT="$(version_current "$NAME_PACKAGE")"
-                    VERSION_AVAILABLE="$(version_available "$NAME_PACKAGE")"
-
-                    if [ -z "$VERSION_AVAILABLE" ] || [ "$VERSION_AVAILABLE" = "$VERSION_CURRENT" ]; then
-                        MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed)" 'off')
-                    else
-                        MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") ($VERSION_CURRENT installed, $VERSION_AVAILABLE available)" 'off')
-                    fi
-                fi
-            else
-                MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\")" 'off')
-            fi
+            "check_installed_${FEATURE}" && MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\") (installed)" 'off') || MENU_INSTALL+=("$FEATURE" "$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\")" 'off')
         done
 
         exec 3>&1
@@ -5300,7 +5252,7 @@ menu_install() {
 
                             [ "$?" = 0 ] && "install_$FEATURE"
                         else
-                            get_yesno "Install '$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\")' update?"
+                            get_yesno "Update '$(eval echo \"\$LABEL_INSTALL_${FEATURE^^}\")' to version '$VERSION_AVAILABLE'?"
 
                             if [ "$?" = 0 ]; then
                                 show_wait
@@ -5906,33 +5858,61 @@ install_dependency() {
 # return values:
 # none
 base_setup() {
+    declare -r CONFIG_BASH="$HOME/.bashrc"
+    declare COUNTER POSTFIX_RESTART
+
     clear
     echo 'Performing base setup. This may take a while...'
 
-    if [ "$DISTRO" = 'redhat' ]; then
+    [ -x "$0" ] || chmod u+x "$0"
+
+    if ! [ -f "$CONFIG_BASH" ] || ! grep -q "alias menu=$HOME/menu.sh" "$CONFIG_BASH"; then
+        echo "alias menu=$HOME/menu.sh" >> "$CONFIG_BASH"
+        source "$CONFIG_BASH"
+    fi
+
+    if [ "$DISTRO" = 'redhat' ] && ! [ -f '/etc/yum.repos.d/epel.repo' ]; then
+        echo '... installing EPEL and updating system (this can take several minutes)'
         yum install -y epel-release &>/dev/null
         yum update -y &>/dev/null
     fi
 
+    echo '... installing package dependencies'
     for COUNTER in $(seq 0 "$(expr "${#DEPENDENCY[@]}" / 2 - 1)"); do
         install_dependency "${DEPENDENCY[$(expr "$COUNTER" \* 2)]}" "${DEPENDENCY[$(expr "$COUNTER" \* 2 + 1)]}"
     done
 
+    # for Debian-10 installing pip3 does NOT install python3-setuptools
+    if [ "$DISTRO" = 'debian' ] && ! pip3 list 2>/dev/null | grep -q '^setuptools'; then
+        echo '... installing Python3 setuptools'
+        apt install -y python3-setuptools &>/dev/null
+    fi
+
+    echo '... setting up CPAN'
     echo | cpan &>/dev/null
 
-    # for Debian-10 installing pip3 does NOT install python3-setuptools
-    pip3 list 2>/dev/null | grep -q '^setuptools' || "$INSTALLER" install -y python3-setuptools &>/dev/null
-
     if which postfix &>/dev/null; then
+        echo '... setting up base Postfix'
         [ -f /etc/postfix/makedefs.out ] && rm -f /etc/postfix/makedefs.out &>/dev/null
 
-        if [ "$(postconf inet_protocols)" != 'inet_protocols = ipv4' ] || [ "$(postconf mynetworks)" != 'mynetworks = 127.0.0.0/8' ]; then
+        POSTFIX_RESTART=0
+
+        if ! postconf inet_protocols | grep -q 'ipv4'; then
             postconf 'inet_protocols=ipv4'
+
+            POSTFIX_RESTART=1
+        fi
+
+        if ! postconf mynetworks | grep -q '127.0.0.0/8'; then
             postconf 'mynetworks=127.0.0.0/8'
 
-            postfix_restart
+            POSTFIX_RESTART=1
         fi
+
+        [ "$POSTFIX_RESTART" = 1 ] && postfix_restart
     fi
+
+    echo '... done'
 }
 
 # main menu, select option in dialog menu
@@ -5941,7 +5921,6 @@ base_setup() {
 # return values:
 # none
 menu_main() {
-    declare -r CONFIG_BASH="$HOME/.bashrc"
     declare -r TAG_MENU_INSTALL='menu_install'
     declare -r TAG_MENU_POSTFIX='menu_postfix'
     declare -r TAG_MENU_RSPAMD='menu_rspamd'
@@ -5958,23 +5937,6 @@ menu_main() {
     declare -r LABEL_SYNC_ALL='Sync cluster'
     declare -a MENU_MAIN
     declare DIALOG_RET RET_CODE TAG_ADDON
-
-    if [ -z "$DISTRO" ]; then
-        show_info 'Incompatible Linux distro' 'This tool only supports Redhat and Debian (and compatible).'
-        clear
-        exit 1
-    fi
-
-    [ -x "$0" ] || chmod u+x "$0"
-
-    if ! [ -f "$CONFIG_BASH" ] || ! grep -q "alias menu=$HOME/menu.sh" "$CONFIG_BASH"; then
-        echo "alias menu=$HOME/menu.sh" >> "$CONFIG_BASH"
-        source "$CONFIG_BASH"
-    fi
-
-    check_update
-    write_examples
-    base_setup
 
     while true; do
         MENU_MAIN=()
@@ -6004,7 +5966,20 @@ menu_main() {
             break
         fi
     done
-    clear
 }
 
-menu_main 2> "$LOG_MENU"
+echo "[$(date +'%F %T')] Starting menu..." >> "$LOG_MENU"
+
+if [ -z "$DISTRO" ]; then
+    show_info 'Incompatible Linux distro' 'This tool only supports Redhat and Debian (and compatible).'
+    clear
+    exit 1
+fi
+
+{
+    base_setup
+    check_update
+    write_examples
+    menu_main
+    clear
+} 2>> "$LOG_MENU"
