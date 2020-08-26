@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.36.0 for Postfix
+# menu.sh V1.37.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - bugfix
+# - added Postfix MIME header checks feature
 #
 ###################################################################################################
 
@@ -229,6 +229,7 @@ POSTFIX_CONFIG_SERVER+=('esmtp')
 POSTFIX_CONFIG_SERVER+=('rewrite')
 POSTFIX_CONFIG_SERVER+=('milter')
 POSTFIX_CONFIG_SERVER+=('header')
+POSTFIX_CONFIG_SERVER+=('mime')
 POSTFIX_CONFIG_SERVER+=('alias')
 
 # Postscreen access IPs
@@ -271,6 +272,10 @@ declare -g -r CONFIG_POSTFIX_MILTER="$DIR_MAPS/smtpd_milter_map"
 declare -g -r LABEL_CONFIG_POSTFIX_HEADER='Header checks'
 declare -g -r CONFIG_POSTFIX_HEADER="$DIR_MAPS/check_header"
 
+# MIME header checks
+declare -g -r LABEL_CONFIG_POSTFIX_MIME='MIME header checks'
+declare -g -r CONFIG_POSTFIX_MIME="$DIR_MAPS/mime_header_checks"
+
 # Virtual aliases
 declare -g -r LABEL_CONFIG_POSTFIX_ALIAS='Virtual aliases'
 declare -g -r CONFIG_POSTFIX_ALIAS="$DIR_MAPS/virtual_aliases"
@@ -301,6 +306,7 @@ POSTFIX_FEATURE+=('dane')
 POSTFIX_FEATURE+=('verbosetls')
 POSTFIX_FEATURE+=('esmtp')
 POSTFIX_FEATURE+=('header')
+POSTFIX_FEATURE+=('mime')
 POSTFIX_FEATURE+=('alias')
 POSTFIX_FEATURE+=('rewrite')
 POSTFIX_FEATURE+=('routing')
@@ -359,7 +365,12 @@ POSTFIX_ESMTP+=('smtpd_discard_ehlo_keywords=')
 # Header checks
 declare -g -r POSTFIX_HEADER_LABEL='Header checks'
 
-POSTFIX_HEADER+=("header_checks=regexp:$DIR_MAPS/check_header")
+POSTFIX_HEADER+=("header_checks=regexp:$CONFIG_POSTFIX_HEADER")
+
+# MIME header checks
+declare -g -r POSTFIX_MIME_LABEL='MIME header checks'
+
+POSTFIX_HEADER+=("mime_header_checks=regexp:$CONFIG_POSTFIX_MIME")
 
 # Virtual aliases
 declare -g -r POSTFIX_ALIAS_LABEL='Virtual aliases'
@@ -4519,10 +4530,11 @@ install_postfix() {
     {
         DEBIAN_FRONTEND=noninteractive "$INSTALLER" -y -q install postfix
 
+        postconf 'inet_protocols=all'
         postconf 'inet_protocols=ipv4'
         postconf 'mynetworks=127.0.0.0/8'
 
-        rm -f /etc/postfix/makedefs.out
+        [ -f /etc/postfix/makedefs.out ] && rm -f /etc/postfix/makedefs.out
     } 2>&1 | show_output 'Installing Postfix'
 }
 
@@ -5807,6 +5819,14 @@ write_examples() {
         echo '#/^\s*X-Originating-IP/  IGNORE' >> "$CONFIG_POSTFIX_HEADER"
     fi
 
+    if ! [ -f "$CONFIG_POSTFIX_MIME" ]; then
+        echo '#######################################' >> "$CONFIG_POSTFIX_MIME"
+        echo '# Postfix MIME header checks (regexp) #' >> "$CONFIG_POSTFIX_MIME"
+        echo '#######################################' >> "$CONFIG_POSTFIX_MIME"
+        echo '/^\s*Content.(Disposition|Type).*name\s*=\s*"?.+\.(exe|pif|com|dll|vbs|bat|doc|dot|xls|xla|xlt|xlw|ppr|pot|ppa|pps|mdb|vsd|vdx)"?\s*$/ REJECT unwanted attachment' >> "$CONFIG_POSTFIX_MIME"
+        echo '/^\s*Content.(Disposition|Type).*name\s*=\s*"?.+\.((?!txt|png|jpg).)*"?\s*$/ REJECT unwanted attachment' >> "$CONFIG_POSTFIX_MIME"
+    fi
+
     if ! [ -f "$CONFIG_POSTFIX_REWRITE" ]; then
         echo '###################################' >> "$CONFIG_POSTFIX_REWRITE"
         echo '# Postfix sender rewrite (regexp) #' >> "$CONFIG_POSTFIX_REWRITE"
@@ -5896,6 +5916,12 @@ base_setup() {
         [ -f /etc/postfix/makedefs.out ] && rm -f /etc/postfix/makedefs.out &>/dev/null
 
         POSTFIX_RESTART=0
+
+        if ! postconf inet_interfaces | grep -q 'all'; then
+            postconf 'inet_interfaces=all'
+
+            POSTFIX_RESTART=1
+        fi
 
         if ! postconf inet_protocols | grep -q 'ipv4'; then
             postconf 'inet_protocols=ipv4'
