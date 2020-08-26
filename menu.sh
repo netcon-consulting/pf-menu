@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.37.0 for Postfix
+# menu.sh V1.38.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - added Postfix MIME header checks feature
+# - bugfix
 #
 ###################################################################################################
 
@@ -370,7 +370,7 @@ POSTFIX_HEADER+=("header_checks=regexp:$CONFIG_POSTFIX_HEADER")
 # MIME header checks
 declare -g -r POSTFIX_MIME_LABEL='MIME header checks'
 
-POSTFIX_HEADER+=("mime_header_checks=regexp:$CONFIG_POSTFIX_MIME")
+POSTFIX_MIME+=("mime_header_checks=regexp:$CONFIG_POSTFIX_MIME")
 
 # Virtual aliases
 declare -g -r POSTFIX_ALIAS_LABEL='Virtual aliases'
@@ -5823,8 +5823,8 @@ write_examples() {
         echo '#######################################' >> "$CONFIG_POSTFIX_MIME"
         echo '# Postfix MIME header checks (regexp) #' >> "$CONFIG_POSTFIX_MIME"
         echo '#######################################' >> "$CONFIG_POSTFIX_MIME"
-        echo '/^\s*Content.(Disposition|Type).*name\s*=\s*"?.+\.(exe|pif|com|dll|vbs|bat|doc|dot|xls|xla|xlt|xlw|ppr|pot|ppa|pps|mdb|vsd|vdx)"?\s*$/ REJECT unwanted attachment' >> "$CONFIG_POSTFIX_MIME"
-        echo '/^\s*Content.(Disposition|Type).*name\s*=\s*"?.+\.((?!txt|png|jpg).)*"?\s*$/ REJECT unwanted attachment' >> "$CONFIG_POSTFIX_MIME"
+        echo '#/^\s*Content.(Disposition|Type).*name\s*=\s*"?.+\.(exe|pif|com|dll|vbs|bat|doc|dot|xls|xla|xlt|xlw|ppr|pot|ppa|pps|mdb|vsd|vdx)"?\s*$/ REJECT unwanted attachment' >> "$CONFIG_POSTFIX_MIME"
+        echo '#/^\s*Content.(Disposition|Type).*name\s*=\s*"?.+\.((?!txt|png|jpg).)*"?\s*$/ REJECT unwanted attachment' >> "$CONFIG_POSTFIX_MIME"
     fi
 
     if ! [ -f "$CONFIG_POSTFIX_REWRITE" ]; then
