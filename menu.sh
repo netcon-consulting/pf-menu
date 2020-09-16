@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.39.0 for Postfix
+# menu.sh V1.40.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - updated MIME header checks examples
+# - added SNMP support
 #
 ###################################################################################################
 
@@ -48,6 +48,7 @@ declare -g -r CRON_RULES='/etc/cron.daily/update_rules.sh'
 declare -g -r CONFIG_SSH="$HOME/.ssh/config"
 declare -g -r CONFIG_SSHD='/etc/ssh/sshd_config'
 declare -g -r CONFIG_IPTABLES='/etc/iptables/rules.v4'
+declare -g -r CONFIG_SNMP='/etc/snmp/snmpd.conf'
 declare -g -r PYZOR_PLUGIN='/usr/share/rspamd/plugins/pyzor.lua'
 declare -g -r PYZOR_DIR='/opt/pyzorsocket'
 declare -g -r PYZOR_SCRIPT="$PYZOR_DIR/bin/pyzorsocket.py"
@@ -79,7 +80,7 @@ elif [ -f '/etc/debian_version' ]; then
 fi
 
 ###################################################################################################
-# Redhat package/service names
+# Redhat specific parameters
 declare -g -r PACKAGE_REDHAT_SPAMASSASSIN='spamassassin GeoIP GeoIP-data perl-App-cpanminus perl-BSD-Resource perl-DBI perl-Encode-Detect perl-Geo-IP perl-LWP-UserAgent-Determined perl-Mail-DKIM perl-Net-CIDR perl-Digest-SHA perl-Net-Patricia spamassassin perl-Mail-SPF redis perl-Archive-Zip perl-Net-LibIDN perl-IO-Socket-INET6 perl-Geo-IP'
 
 declare -g -r PACKAGE_REDHAT_BIND='bind'
@@ -89,8 +90,11 @@ declare -g -r PACKAGE_REDHAT_POSTFWD='perl-Sys-Syslog perl-Net-Server perl-Net-D
 
 declare -g -r PACKAGE_REDHAT_SPF='pypolicyd-spf'
 
+declare -g -r PACKAGE_REDHAT_SNMP='net-snmp'
+declare -g -r FILE_REDHAT_SNMP='/etc/snmp/snmpd.conf'
+
 ###################################################################################################
-# Debian package/service names
+# Debian specific parameters
 declare -g -r PACKAGE_DEBIAN_SPAMASSASSIN='geoip-bin geoip-database geoip-database-extra cpanminus libbsd-resource-perl libdbi-perl libencode-detect-perl libgeo-ip-perl liblwp-useragent-determined-perl libmail-dkim-perl libnet-cidr-perl libdigest-sha-perl libnet-patricia-perl postfix-pcre sa-compile spamassassin spamc spf-tools-perl redis-server libarchive-zip-perl libio-string-perl libmaxmind-db-reader-perl libmaxmind-db-reader-xs-perl libnet-libidn-perl libio-socket-inet6-perl libgeoip2-perl'
 
 declare -g -r PACKAGE_DEBIAN_BIND='bind9'
@@ -99,6 +103,9 @@ declare -g -r SERVICE_DEBIAN_BIND='bind9'
 declare -g -r PACKAGE_DEBIAN_POSTFWD='libnet-server-perl libnet-dns-perl'
 
 declare -g -r PACKAGE_DEBIAN_SPF='postfix-policyd-spf-python'
+
+declare -g -r PACKAGE_DEBIAN_SNMP='snmpd libsnmp-dev'
+declare -g -r FILE_DEBIAN_SNMP='/usr/share/snmp/snmpd.conf'
 
 ###################################################################################################
 # Default settings
@@ -141,6 +148,7 @@ INSTALL_FEATURE+=('acme')
 INSTALL_FEATURE+=('logwatch')
 INSTALL_FEATURE+=('logmanager')
 INSTALL_FEATURE+=('reboot')
+INSTALL_FEATURE+=('snmp')
 INSTALL_FEATURE+=('cluster')
 
 # Postfix
@@ -210,6 +218,10 @@ declare -g -r LABEL_INSTALL_LOGMANAGER='NetCon Log-manager'
 
 # Reboot alert
 declare -g -r LABEL_INSTALL_REBOOT='Reboot alert'
+
+# SNMP support
+declare -g -r LABEL_INSTALL_SNMP='SNMP support'
+declare -g -r INSTALL_SNMP_PACKAGE="$(eval echo \"\$PACKAGE_${DISTRO^^}_SNMP\")"
 
 # Setup cluster peer
 declare -g -r LABEL_INSTALL_CLUSTER='Setup cluster peer'
@@ -1391,6 +1403,15 @@ check_installed_reboot() {
     else
         return 1
     fi
+}
+
+# check whether SNMP support is installed
+# parameters:
+# none
+# return values:
+# error code - 0 for installed, 1 for not installed
+check_installed_snmp() {
+    which net-snmp-create-v3-user &>/dev/null && return 0 || return 1
 }
 
 # check whether cluster peer is available
@@ -4467,6 +4488,99 @@ password_auth() {
     toggle_setting 'pwauth' 'SSH password authentication'
 }
 
+# check SNMP support status
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 disabled
+snmp_status() {
+    grep -E -q '^rouser \S+$' "$(eval echo \"\$FILE_${DISTRO^^}_SNMP\")" && return 0 || return 1
+}
+
+# enable SNMP support
+# parameters:
+# none
+# return values:
+# none
+snmp_enable() {
+    declare CLIENT_IP RET_CODE USER_NAME PASS_PHRASE CONFIG_FW
+
+    exec 3>&1
+    CLIENT_IP="$(get_input 'SNMP V3 configuration' 'Enter client IP')"
+    RET_CODE="$?"
+    exec 3>&-
+
+    if [ "$RET_CODE" = 0 ] && ! [ -z "$CLIENT_IP" ]; then
+                exec 3>&1
+                USER_NAME="$(get_input 'SNMP V3 configuration' 'Enter user name')"
+                RET_CODE="$?"
+                exec 3>&-
+
+                if [ "$RET_CODE" = 0 ] && ! [ -z "$USER_NAME" ]; then
+                    exec 3>&1
+                    PASS_PHRASE="$(get_input 'SNMP V3 configuration' 'Enter passphrase')"
+                    RET_CODE="$?"
+                    exec 3>&-
+
+                    if [ "$RET_CODE" = 0 ] && ! [ -z "$PASS_PHRASE" ]; then
+                        sed -i 's/^\s*agentAddress .*$/agentAddress tcp:161/' "$CONFIG_SNMP"
+                        sed -i '/^\s*rocommunity .*$/d' "$CONFIG_SNMP"
+                        sed -i '/^\s*rocommunity6 .*$/d' "$CONFIG_SNMP"
+                        sed -i '/^\s*com2sec .*$/d' "$CONFIG_SNMP"
+                        sed -i '/^\s*group .*$/d' "$CONFIG_SNMP"
+                        sed -i '/^\s*access .*$/d' "$CONFIG_SNMP"
+
+                        grep -q '^agentAddress tcp:161$' "$CONFIG_SNMP" || echo 'agentAddress tcp:161' >> "$CONFIG_SNMP"
+
+                        systemctl stop snmpd &>/dev/null
+
+                        net-snmp-create-v3-user -ro -a SHA -x AES -A "$PASS_PHRASE" -X "$PASS_PHRASE" "$USER_NAME" &>/dev/null
+
+                        systemctl start snmpd &>/dev/null
+                        enable_service snmpd &>/dev/null
+
+                        CONFIG_FW="-i eth0 -p tcp --dport 161 -s $CLIENT_IP -j ACCEPT"
+
+                        if ! grep -q "^$CONFIG_FW$" "$CONFIG_IPTABLES"; then
+                            NUM_LINE="$(grep -n '^-A INPUT ' "$CONFIG_IPTABLES" | head -1 | awk -F: '{print $1}')"
+                            sed -i "${NUM_LINE}i -A INPUT $CONFIG_FW" "$CONFIG_IPTABLES"
+                            iptables -I INPUT 1 $CONFIG_FW &>/dev/null
+                        fi
+
+                        show_info 'SNMP info' 'SNMP enabled on TCP port 161.'$'\n\n''Test connection:'$'\n'"snmpget -v3 -u $USER_NAME -l authPriv -a SHA -x AES -A $PASS_PHRASE -X $PASS_PHRASE tcp:$(hostname -I | awk '{print $1}') SNMPv2-MIB::sysName.0"
+                    fi
+                fi
+            fi
+}
+
+# disable SNMP support
+# parameters:
+# none
+# return values:
+# none
+snmp_disable() {
+    declare CONFIG_FW
+
+    sed -i '/^rouser \S\+$/d' "$(eval echo \"\$FILE_${DISTRO^^}_SNMP\")"
+
+    systemctl stop snmpd &>/dev/null
+    disable_service snmpd
+
+    CONFIG_FW="$(grep -E '^-A INPUT -i eth0 -p tcp --dport 161 -s \S+ -j ACCEPT$' "$CONFIG_IPTABLES")"
+
+    sed -i "/^-A $CONFIG_FW$/d" "$CONFIG_IPTABLES"
+    iptables -D $CONFIG_FW &>/dev/null
+}
+
+# toggle SNMP support
+# parameters:
+# none
+# return values:
+# none
+snmp_support() {
+    toggle_setting 'snmp' 'SNMP support'
+}
+
 # select log action in dialog menu
 # parameters:
 # $1 - program log
@@ -5141,6 +5255,15 @@ install_reboot() {
     add_crontab "$CRONTAB_REBOOT"
 }
 
+# install SNMP support
+# parameters:
+# none
+# return values:
+# none
+install_snmp() {
+    "$INSTALLER" install -y $(eval echo \"\$PACKAGE_${DISTRO^^}_SNMP\") 2>&1 | show_output 'Installing SNMP support'
+}
+
 # setup cluster peer
 # parameters:
 # none
@@ -5610,6 +5733,7 @@ menu_misc() {
     declare -r TAG_ADMIN='admin_addresses'
     declare -r TAG_UPDATES='automatic_update'
     declare -r TAG_PWAUTH='password_auth'
+    declare -r TAG_SNMP='snmp_support'
     declare -r TAG_CONNECTIONS='show_connections'
     declare -r TAG_FIREWALL='show_firewall'
     declare -r TAG_INSTALL='show_install'
@@ -5619,6 +5743,7 @@ menu_misc() {
     declare -r LABEL_ADMIN='Set admin addresses'
     declare -r LABEL_UPDATES='Automatic update'
     declare -r LABEL_PWAUTH='SSH password authentication'
+    declare -r LABEL_SNMP='SNMP support'
     declare -r LABEL_CONNECTIONS='Network connections'
     declare -r LABEL_FIREWALL='Firewall rules'
     declare -r LABEL_INSTALL='Install log'
@@ -5634,6 +5759,9 @@ menu_misc() {
             automatic_update_status && MENU_MISC+=("$TAG_UPDATES" "$LABEL_UPDATES (enabled)") || MENU_MISC+=("$TAG_UPDATES" "$LABEL_UPDATES (disabled)")
         fi
         pwauth_status && MENU_MISC+=("$TAG_PWAUTH" "$LABEL_PWAUTH (enabled)") || MENU_MISC+=("$TAG_PWAUTH" "$LABEL_PWAUTH (disabled)")
+        if check_installed_snmp; then
+            snmp_status && MENU_MISC+=("$TAG_SNMP" "$LABEL_SNMP (enabled)") || MENU_MISC+=("$TAG_SNMP" "$LABEL_SNMP (disabled)")
+        fi
         MENU_MISC+=("$TAG_CONNECTIONS" "$LABEL_CONNECTIONS")
         MENU_MISC+=("$TAG_FIREWALL" "$LABEL_FIREWALL")
         MENU_MISC+=("$TAG_INSTALL" "$LABEL_INSTALL")
@@ -5931,7 +6059,7 @@ base_setup() {
             POSTFIX_RESTART=1
         fi
 
-        if ! postconf mynetworks | grep -q '127.0.0.0/8'; then
+        if [ "$(postconf mynetworks)" = 'mynetworks =' ]; then
             postconf 'mynetworks=127.0.0.0/8'
 
             POSTFIX_RESTART=1
