@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.40.0 for Postfix
+# menu.sh V1.41.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - added SNMP support
+# - added support for SUSE Linux
 #
 ###################################################################################################
 
@@ -77,6 +77,9 @@ if [ -f '/etc/redhat-release' ]; then
 elif [ -f '/etc/debian_version' ]; then
     DISTRO='debian'
     INSTALLER='apt'
+elif [ -f '/etc/SUSE-brand' ]; then
+    DISTRO='suse'
+    INSTALLER='zypper'
 fi
 
 ###################################################################################################
@@ -106,6 +109,18 @@ declare -g -r PACKAGE_DEBIAN_SPF='postfix-policyd-spf-python'
 
 declare -g -r PACKAGE_DEBIAN_SNMP='snmpd libsnmp-dev'
 declare -g -r FILE_DEBIAN_SNMP='/usr/share/snmp/snmpd.conf'
+
+###################################################################################################
+# SUSE specific parameters
+declare -g -r PACKAGE_SUSE_SPAMASSASSIN='spamassassin GeoIP GeoIP-data perl-App-cpanminus perl-BSD-Resource perl-DBI perl-Encode-Detect perl-Geo-IP perl-LWP-UserAgent-Determined perl-Mail-DKIM perl-Net-CIDR perl-Digest-SHA perl-Net-Patricia spamassassin perl-Mail-SPF redis perl-Archive-Zip perl-Net-LibIDN perl-IO-Socket-INET6 perl-Geo-IP'
+
+declare -g -r PACKAGE_SUSE_BIND='bind'
+declare -g -r SERVICE_SUSE_BIND='named'
+
+declare -g -r PACKAGE_SUSE_POSTFWD='perl-Unix-Syslog perl-Net-Server perl-Net-DNS perl-IO-Multiplex'
+
+declare -g -r PACKAGE_SUSE_SNMP='net-snmp'
+declare -g -r FILE_SUSE_SNMP='/usr/share/snmp/snmpd.conf'
 
 ###################################################################################################
 # Default settings
@@ -143,7 +158,7 @@ INSTALL_FEATURE+=('clamav')
 INSTALL_FEATURE+=('sophosav')
 INSTALL_FEATURE+=('fail2ban')
 INSTALL_FEATURE+=('dkim')
-INSTALL_FEATURE+=('spf')
+[ "$DISTRO" = 'suse' ] || INSTALL_FEATURE+=('spf')
 INSTALL_FEATURE+=('acme')
 INSTALL_FEATURE+=('logwatch')
 INSTALL_FEATURE+=('logmanager')
@@ -1210,7 +1225,7 @@ del_crontab() {
 # return values:
 # none
 enable_service() {
-    if [ "$DISTRO" = 'redhat' ]; then
+    if [ "$DISTRO" = 'redhat' ] || [ "$DISTRO" = 'suse' ]; then
         chkconfig "$1" on
     elif [ "$DISTRO" = 'debian' ]; then
         update-rc.d "$2" defaults
@@ -1223,7 +1238,7 @@ enable_service() {
 # return values:
 # none
 disable_service() {
-    if [ "$DISTRO" = 'redhat' ]; then
+    if [ "$DISTRO" = 'redhat' ] || [ "$DISTRO" = 'suse' ]; then
         chkconfig "$1" off
     elif [ "$DISTRO" = 'debian' ]; then
         update-rc.d "$1" remove
@@ -4700,7 +4715,7 @@ install_postfwd() {
         wget "$INSTALL_POSTFWD_LINK" -O - > /usr/local/postfwd/sbin/postfwd
         chmod +x /usr/local/postfwd/sbin/postfwd
         wget https://raw.githubusercontent.com/postfwd/postfwd/master/bin/postfwd-script.sh -O - | sed "s/nobody/$POSTFWD_USER/" | sed '1a # chkconfig: - 85 15' > /etc/init.d/postfwd
-        wget https://raw.githubusercontent.com/postfwd/postfwd/master/etc/postfwd.cf.sample -O - > /etc/postfwd.cf
+        wget https://raw.githubusercontent.com/postfwd/postfwd/master/etc/postfwd.cf.sample -O - > "$CONFIG_POSTFWD"
         chmod +x /etc/init.d/postfwd
 
         "$INSTALLER" install -y $(eval echo \"\$PACKAGE_${DISTRO^^}_POSTFWD\")
@@ -4814,6 +4829,11 @@ install_spamassassin() {
     FJDE780r0G3A+hMNdJVIq8SFkJQWHziaE0qiAAAA
     '
     {
+        if [ "$DISTRO" = 'suse' ]; then
+            zypper ar -f https://download.opensuse.org/repositories/devel:/languages:/perl/"$(grep 'PRETTY_NAME' /etc/os-release | awk -F= '{print $2}' | sed 's/"//g' | sed 's/ /_/g')"/devel:languages:perl.repo
+            zypper --gpg-auto-import-keys refresh
+        fi
+
         "$INSTALLER" install -y $(eval echo \"\$PACKAGE_${DISTRO^^}_SPAMASSASSIN\")
 
         grep -q '^spamd:' /etc/group || addgroup spamd
@@ -4900,6 +4920,10 @@ install_rspamd() {
 
             apt update
             apt install -y redis-server rspamd
+        elif [ "$DISTRO" = 'suse' ]; then
+            zypper ar -f https://download.opensuse.org/repositories/server:/mail/"$(grep 'PRETTY_NAME' /etc/os-release | awk -F= '{print $2}' | sed 's/"//g' | sed 's/ /_/g')"/server:mail.repo
+            zypper --gpg-auto-import-keys refresh
+            zypper install -y redis rspamd patch
         fi
 
         echo 'read_servers = "127.0.0.1";' > "$CONFIG_RSPAMD_REDIS"
@@ -4932,8 +4956,8 @@ install_pyzor() {
 # none
 install_razor() {
     {
-        if [ "$DISTRO" = 'redhat' ]; then
-            cpan Razor2:Client:Agent
+        if [ "$DISTRO" = 'redhat' ] || [ "$DISTRO" = 'suse' ]; then
+            cpan -f Razor2:Client:Agent
         elif [ "$DISTRO" = 'debian' ]; then
             apt install -y razor
         fi
@@ -6127,8 +6151,7 @@ menu_main() {
 echo "[$(date +'%F %T')] Starting menu..." >> "$LOG_MENU"
 
 if [ -z "$DISTRO" ]; then
-    show_info 'Incompatible Linux distro' 'This tool only supports Redhat and Debian (and compatible).'
-    clear
+    echo 'Incompatible Linux distro' 'This tool only supports Redhat, Debian and SUSE Linux (and compatible).'
     exit 1
 fi
 
