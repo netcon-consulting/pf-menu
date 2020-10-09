@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.41.0 for Postfix
+# menu.sh V1.42.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - added support for SUSE Linux
+# - added option for toggling tsocks proxy
 #
 ###################################################################################################
 
@@ -949,6 +949,7 @@ declare -g -r HELP_OTHER_INFO='Show other info and stats.
 ###################################################################################################
 # Menu settings
 declare -g TXT_EDITOR="$DEFAULT_EDITOR"
+declare -g WGET='wget'
 
 ###################################################################################################
 # pause and ask for keypress
@@ -2904,7 +2905,7 @@ sarules_enable() {
         FILE_DOWNLOAD="$DIR_RULES/$VERSION_RULES.tgz"
         rm -rf "$DIR_RULES" &>/dev/null
         mkdir -p "$DIR_RULES"
-        wget "http://www.spamassassin.heinlein-support.de/$VERSION_RULES.tar.gz" -O "$FILE_DOWNLOAD" &>/dev/null
+        "$WGET" "http://www.spamassassin.heinlein-support.de/$VERSION_RULES.tar.gz" -O "$FILE_DOWNLOAD" &>/dev/null
 
         if ! [ -f "$FILE_DOWNLOAD" ]; then
             return 1
@@ -3242,9 +3243,9 @@ oletools_enable() {
     groupadd "$OLETOOLS_USER"
     useradd -g "$OLETOOLS_USER" "$OLETOOLS_USER"
 
-    wget https://raw.githubusercontent.com/HeinleinSupport/olefy/master/olefy.py -O "$OLETOOLS_SCRIPT" 2>/dev/null
-    wget https://raw.githubusercontent.com/HeinleinSupport/olefy/master/olefy.conf -O - 2>/dev/null | sed -E 's/(OLEFY_BINDADDRESS=127.0.0.1), ::1/\1/g' > "$OLETOOLS_CONFIG"
-    wget https://raw.githubusercontent.com/HeinleinSupport/olefy/master/olefy.service -O "$OLETOOLS_SERVICE" 2>/dev/null
+    "$WGET" https://raw.githubusercontent.com/HeinleinSupport/olefy/master/olefy.py -O "$OLETOOLS_SCRIPT" 2>/dev/null
+    "$WGET" https://raw.githubusercontent.com/HeinleinSupport/olefy/master/olefy.conf -O - 2>/dev/null | sed -E 's/(OLEFY_BINDADDRESS=127.0.0.1), ::1/\1/g' > "$OLETOOLS_CONFIG"
+    "$WGET" https://raw.githubusercontent.com/HeinleinSupport/olefy/master/olefy.service -O "$OLETOOLS_SERVICE" 2>/dev/null
 
     systemctl daemon-reload
     systemctl enable olefy.service &>/dev/null
@@ -4206,7 +4207,7 @@ check_compatible() {
 # return values:
 # none
 set_menu_setting() {
-    sed -i -E "s/(declare -g $(echo "$1" | awk -F= '{print $1}')=)\S+/\1$(echo "$1" | awk -F= '{print $2}')/" "$0"
+    sed -i -E "s/(declare -g $(echo "$1" | awk -F= '{print $1}')=).+/\1$(echo "$1" | awk -F= '{print $2}')/" "$0"
     eval "$1"
 }
 
@@ -4503,6 +4504,42 @@ password_auth() {
     toggle_setting 'pwauth' 'SSH password authentication'
 }
 
+# check tsocks proxy status
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 disabled
+tsocks_status() {
+    [ "$WGET" = 'wget' ] && return 1 || return 0
+}
+
+# enable tsocks proxy
+# parameters:
+# none
+# return values:
+# none
+tsocks_enable() {
+    set_menu_setting "WGET='tsocks wget'"
+}
+
+# disable tsocks proxy
+# parameters:
+# none
+# return values:
+# none
+tsocks_disable() {
+    set_menu_setting "WGET='wget'"
+}
+
+# toggle tsocks proxy
+# parameters:
+# none
+# return values:
+# none
+tsocks_proxy() {
+    toggle_setting 'tsocks' 'Tsocks proxy'
+}
+
 # check SNMP support status
 # parameters:
 # none
@@ -4712,10 +4749,10 @@ install_postfwd() {
         useradd -g "$POSTFWD_USER" "$POSTFWD_USER"
 
         mkdir -p /usr/local/postfwd/sbin
-        wget "$INSTALL_POSTFWD_LINK" -O - > /usr/local/postfwd/sbin/postfwd
+        "$WGET" "$INSTALL_POSTFWD_LINK" -O - > /usr/local/postfwd/sbin/postfwd
         chmod +x /usr/local/postfwd/sbin/postfwd
-        wget https://raw.githubusercontent.com/postfwd/postfwd/master/bin/postfwd-script.sh -O - | sed "s/nobody/$POSTFWD_USER/" | sed '1a # chkconfig: - 85 15' > /etc/init.d/postfwd
-        wget https://raw.githubusercontent.com/postfwd/postfwd/master/etc/postfwd.cf.sample -O - > "$CONFIG_POSTFWD"
+        "$WGET" https://raw.githubusercontent.com/postfwd/postfwd/master/bin/postfwd-script.sh -O - | sed "s/nobody/$POSTFWD_USER/" | sed '1a # chkconfig: - 85 15' > /etc/init.d/postfwd
+        "$WGET" https://raw.githubusercontent.com/postfwd/postfwd/master/etc/postfwd.cf.sample -O - > "$CONFIG_POSTFWD"
         chmod +x /etc/init.d/postfwd
 
         "$INSTALLER" install -y $(eval echo \"\$PACKAGE_${DISTRO^^}_POSTFWD\")
@@ -4846,8 +4883,8 @@ install_spamassassin() {
 
         [ -d "$DIR_CONFIG_SPAMASSASSIN" ] || mkdir "$DIR_CONFIG_SPAMASSASSIN"
 
-        wget http://svn.apache.org/repos/asf/spamassassin/trunk/masses/plugins/HitFreqsRuleTiming.pm -O "$DIR_CONFIG_SPAMASSASSIN"/HitFreqsRuleTiming.pl
-        wget https://mailfud.org/iXhash2/iXhash2-2.05.tar.gz -O - | tar -O -xz iXhash2-2.05/iXhash2.pm > "$DIR_CONFIG_SPAMASSASSIN"/iXhash2.pm
+        "$WGET" http://svn.apache.org/repos/asf/spamassassin/trunk/masses/plugins/HitFreqsRuleTiming.pm -O "$DIR_CONFIG_SPAMASSASSIN"/HitFreqsRuleTiming.pl
+        "$WGET" https://mailfud.org/iXhash2/iXhash2-2.05.tar.gz -O - | tar -O -xz iXhash2-2.05/iXhash2.pm > "$DIR_CONFIG_SPAMASSASSIN"/iXhash2.pm
 
         printf '%s' $PACKED_CONFIG | base64 -d | gunzip > "$CONFIG_SPAMASSASSIN_LOCAL"
         printf '%s' $PACKED_DEFAULT | base64 -d | gunzip > /etc/default/spamassassin
@@ -4871,7 +4908,7 @@ install_spamassassin() {
 
         [ -f '/etc/cron.daily/spamassassin' ] && rm -f /etc/cron.daily/spamassassin
 
-        wget https://www.pccc.com/downloads/SpamAssassin/contrib/KAM.cf -O /etc/spamassassin/KAM.cf
+        "$WGET" https://www.pccc.com/downloads/SpamAssassin/contrib/KAM.cf -O /etc/spamassassin/KAM.cf
 
         cpan Digest::SHA1
 
@@ -4913,7 +4950,7 @@ install_rspamd() {
 
             CODENAME="$(lsb_release -c -s)"
 
-            wget https://rspamd.com/apt-stable/gpg.key -O - | apt-key add -
+            "$WGET" https://rspamd.com/apt-stable/gpg.key -O - | apt-key add -
 
             echo "deb [arch=amd64] http://rspamd.com/apt-stable/ $CODENAME main" > /etc/apt/sources.list.d/rspamd.list
             echo "deb-src [arch=amd64] http://rspamd.com/apt-stable/ $CODENAME main" >> /etc/apt/sources.list.d/rspamd.list
@@ -5178,7 +5215,7 @@ install_acme() {
 
     {
         "$INSTALLER" install -y socat
-        wget -O - https://get.acme.sh 2>/dev/null | sh
+        "$WGET" -O - https://get.acme.sh 2>/dev/null | sh
         /root/.acme.sh/acme.sh --uninstall-cronjob
         iptables -I INPUT 1 -p tcp -m tcp --dport 80 -j ACCEPT
         /root/.acme.sh/acme.sh --issue --standalone -d "$HOST_NAME"
@@ -5757,6 +5794,7 @@ menu_misc() {
     declare -r TAG_ADMIN='admin_addresses'
     declare -r TAG_UPDATES='automatic_update'
     declare -r TAG_PWAUTH='password_auth'
+    declare -r TAG_TSOCKS='tsocks_proxy'
     declare -r TAG_SNMP='snmp_support'
     declare -r TAG_CONNECTIONS='show_connections'
     declare -r TAG_FIREWALL='show_firewall'
@@ -5767,6 +5805,7 @@ menu_misc() {
     declare -r LABEL_ADMIN='Set admin addresses'
     declare -r LABEL_UPDATES='Automatic update'
     declare -r LABEL_PWAUTH='SSH password authentication'
+    declare -r LABEL_TSOCKS='Tsocks proxy'
     declare -r LABEL_SNMP='SNMP support'
     declare -r LABEL_CONNECTIONS='Network connections'
     declare -r LABEL_FIREWALL='Firewall rules'
@@ -5783,6 +5822,7 @@ menu_misc() {
             automatic_update_status && MENU_MISC+=("$TAG_UPDATES" "$LABEL_UPDATES (enabled)") || MENU_MISC+=("$TAG_UPDATES" "$LABEL_UPDATES (disabled)")
         fi
         pwauth_status && MENU_MISC+=("$TAG_PWAUTH" "$LABEL_PWAUTH (enabled)") || MENU_MISC+=("$TAG_PWAUTH" "$LABEL_PWAUTH (disabled)")
+        tsocks_status && MENU_MISC+=("$TAG_TSOCKS" "$LABEL_TSOCKS (enabled)") || MENU_MISC+=("$TAG_TSOCKS" "$LABEL_TSOCKS (disabled)")
         if check_installed_snmp; then
             snmp_status && MENU_MISC+=("$TAG_SNMP" "$LABEL_SNMP (enabled)") || MENU_MISC+=("$TAG_SNMP" "$LABEL_SNMP (disabled)")
         fi
@@ -5859,7 +5899,7 @@ check_update() {
     declare VERSION MAJOR_DL MINOR_DL BUILD_DL MAJOR_CURRENT MINOR_CURRENT BUILD_CURRENT MENU_SETTINGS
 
     rm -f "$TMP_UPDATE"
-    wget "$LINK_UPDATE" -O "$TMP_UPDATE" &>/dev/null
+    "$WGET" "$LINK_UPDATE" -O "$TMP_UPDATE" &>/dev/null
 
     if [ "$?" = 0 ]; then
         VERSION="$(grep '^# menu.sh V' "$TMP_UPDATE" | awk -FV '{print $2}' | awk '{print $1}')"
