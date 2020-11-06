@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.42.0 for Postfix
+# menu.sh V1.43.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -17,6 +17,8 @@
 #
 # Changelog:
 # - added option for toggling tsocks proxy
+# - added support for Rspamd cluster for Redhat
+# - updated getspf script
 #
 ###################################################################################################
 
@@ -47,7 +49,6 @@ declare -g -r CRONTAB_PSWLUPDATE='@daily /etc/netcon-scripts/getspf.sh -p -s /et
 declare -g -r CRON_RULES='/etc/cron.daily/update_rules.sh'
 declare -g -r CONFIG_SSH="$HOME/.ssh/config"
 declare -g -r CONFIG_SSHD='/etc/ssh/sshd_config'
-declare -g -r CONFIG_IPTABLES='/etc/iptables/rules.v4'
 declare -g -r CONFIG_SNMP='/etc/snmp/snmpd.conf'
 declare -g -r PYZOR_PLUGIN='/usr/share/rspamd/plugins/pyzor.lua'
 declare -g -r PYZOR_DIR='/opt/pyzorsocket'
@@ -65,7 +66,6 @@ declare -g -r OLETOOLS_CONFIG='/etc/olefy.conf'
 declare -g -r OLETOOLS_USER='olefy'
 declare -g -r CONFIG_UPDATE='/etc/apt/apt.conf.d/50unattended-upgrades'
 declare -g -r CONFIG_LOGWATCH='/etc/logwatch/conf/logwatch.conf'
-declare -g -r CONFIG_REDIS='/etc/redis/redis.conf'
 
 ###################################################################################################
 # Distro settings
@@ -82,45 +82,59 @@ elif [ -f '/etc/SUSE-brand' ]; then
     INSTALLER='zypper'
 fi
 
-###################################################################################################
-# Redhat specific parameters
-declare -g -r PACKAGE_REDHAT_SPAMASSASSIN='spamassassin GeoIP GeoIP-data perl-App-cpanminus perl-BSD-Resource perl-DBI perl-Encode-Detect perl-Geo-IP perl-LWP-UserAgent-Determined perl-Mail-DKIM perl-Net-CIDR perl-Digest-SHA perl-Net-Patricia spamassassin perl-Mail-SPF redis perl-Archive-Zip perl-Net-LibIDN perl-IO-Socket-INET6 perl-Geo-IP'
+if [ "$DISTRO" = 'redhat' ]; then
+    ###################################################################################################
+    # Redhat specific parameters
+    declare -g -r PACKAGE_SPAMASSASSIN='spamassassin GeoIP GeoIP-data perl-App-cpanminus perl-BSD-Resource perl-DBI perl-Encode-Detect perl-Geo-IP perl-LWP-UserAgent-Determined perl-Mail-DKIM perl-Net-CIDR perl-Digest-SHA perl-Net-Patricia spamassassin perl-Mail-SPF redis perl-Archive-Zip perl-Net-LibIDN perl-IO-Socket-INET6 perl-Geo-IP'
 
-declare -g -r PACKAGE_REDHAT_BIND='bind'
-declare -g -r SERVICE_REDHAT_BIND='named'
+    declare -g -r PACKAGE_BIND='bind'
+    declare -g -r SERVICE_BIND='named'
 
-declare -g -r PACKAGE_REDHAT_POSTFWD='perl-Sys-Syslog perl-Net-Server perl-Net-DNS'
+    declare -g -r PACKAGE_POSTFWD='perl-Sys-Syslog perl-Net-Server perl-Net-DNS'
 
-declare -g -r PACKAGE_REDHAT_SPF='pypolicyd-spf'
+    declare -g -r PACKAGE_SPF='pypolicyd-spf'
 
-declare -g -r PACKAGE_REDHAT_SNMP='net-snmp'
-declare -g -r FILE_REDHAT_SNMP='/etc/snmp/snmpd.conf'
+    declare -g -r PACKAGE_SNMP='net-snmp'
+    declare -g -r FILE_SNMP='/etc/snmp/snmpd.conf'
 
-###################################################################################################
-# Debian specific parameters
-declare -g -r PACKAGE_DEBIAN_SPAMASSASSIN='geoip-bin geoip-database geoip-database-extra cpanminus libbsd-resource-perl libdbi-perl libencode-detect-perl libgeo-ip-perl liblwp-useragent-determined-perl libmail-dkim-perl libnet-cidr-perl libdigest-sha-perl libnet-patricia-perl postfix-pcre sa-compile spamassassin spamc spf-tools-perl redis-server libarchive-zip-perl libio-string-perl libmaxmind-db-reader-perl libmaxmind-db-reader-xs-perl libnet-libidn-perl libio-socket-inet6-perl libgeoip2-perl'
+    declare -g -r CONFIG_IPTABLES='/etc/sysconfig/iptables'
 
-declare -g -r PACKAGE_DEBIAN_BIND='bind9'
-declare -g -r SERVICE_DEBIAN_BIND='bind9'
+    declare -g -r CONFIG_REDIS='/etc/redis.conf'
+elif [ "$DISTRO" = 'debian' ]; then
+    ###################################################################################################
+    # Debian specific parameters
+    declare -g -r PACKAGE_SPAMASSASSIN='geoip-bin geoip-database geoip-database-extra cpanminus libbsd-resource-perl libdbi-perl libencode-detect-perl libgeo-ip-perl liblwp-useragent-determined-perl libmail-dkim-perl libnet-cidr-perl libdigest-sha-perl libnet-patricia-perl postfix-pcre sa-compile spamassassin spamc spf-tools-perl redis-server libarchive-zip-perl libio-string-perl libmaxmind-db-reader-perl libmaxmind-db-reader-xs-perl libnet-libidn-perl libio-socket-inet6-perl libgeoip2-perl'
 
-declare -g -r PACKAGE_DEBIAN_POSTFWD='libnet-server-perl libnet-dns-perl'
+    declare -g -r PACKAGE_BIND='bind9'
+    declare -g -r SERVICE_BIND='bind9'
 
-declare -g -r PACKAGE_DEBIAN_SPF='postfix-policyd-spf-python'
+    declare -g -r PACKAGE_POSTFWD='libnet-server-perl libnet-dns-perl'
 
-declare -g -r PACKAGE_DEBIAN_SNMP='snmpd libsnmp-dev'
-declare -g -r FILE_DEBIAN_SNMP='/usr/share/snmp/snmpd.conf'
+    declare -g -r PACKAGE_SPF='postfix-policyd-spf-python'
 
-###################################################################################################
-# SUSE specific parameters
-declare -g -r PACKAGE_SUSE_SPAMASSASSIN='spamassassin GeoIP GeoIP-data perl-App-cpanminus perl-BSD-Resource perl-DBI perl-Encode-Detect perl-Geo-IP perl-LWP-UserAgent-Determined perl-Mail-DKIM perl-Net-CIDR perl-Digest-SHA perl-Net-Patricia spamassassin perl-Mail-SPF redis perl-Archive-Zip perl-Net-LibIDN perl-IO-Socket-INET6 perl-Geo-IP'
+    declare -g -r PACKAGE_SNMP='snmpd libsnmp-dev'
+    declare -g -r FILE_SNMP='/usr/share/snmp/snmpd.conf'
 
-declare -g -r PACKAGE_SUSE_BIND='bind'
-declare -g -r SERVICE_SUSE_BIND='named'
+    declare -g -r CONFIG_IPTABLES='/etc/iptables/rules.v4'
 
-declare -g -r PACKAGE_SUSE_POSTFWD='perl-Unix-Syslog perl-Net-Server perl-Net-DNS perl-IO-Multiplex'
+    declare -g -r CONFIG_REDIS='/etc/redis/redis.conf'
+elif [ "$DISTRO" = 'suse' ]; then
+    ###################################################################################################
+    # SUSE specific parameters
+    declare -g -r PACKAGE_SPAMASSASSIN='spamassassin GeoIP GeoIP-data perl-App-cpanminus perl-BSD-Resource perl-DBI perl-Encode-Detect perl-Geo-IP perl-LWP-UserAgent-Determined perl-Mail-DKIM perl-Net-CIDR perl-Digest-SHA perl-Net-Patricia spamassassin perl-Mail-SPF redis perl-Archive-Zip perl-Net-LibIDN perl-IO-Socket-INET6 perl-Geo-IP'
 
-declare -g -r PACKAGE_SUSE_SNMP='net-snmp'
-declare -g -r FILE_SUSE_SNMP='/usr/share/snmp/snmpd.conf'
+    declare -g -r PACKAGE_BIND='bind'
+    declare -g -r SERVICE_BIND='named'
+
+    declare -g -r PACKAGE_POSTFWD='perl-Unix-Syslog perl-Net-Server perl-Net-DNS perl-IO-Multiplex'
+
+    declare -g -r PACKAGE_SNMP='net-snmp'
+    declare -g -r FILE_SNMP='/usr/share/snmp/snmpd.conf'
+
+    declare -g -r CONFIG_IPTABLES='/etc/iptables/rules.v4'
+
+    declare -g -r CONFIG_REDIS='/etc/redis/redis.conf'
+fi
 
 ###################################################################################################
 # Default settings
@@ -172,7 +186,7 @@ declare -g -r INSTALL_POSTFIX_PACKAGE='postfix'
 
 # Local DNS resolver
 declare -g -r LABEL_INSTALL_RESOLVER='Local DNS resolver'
-declare -g -r INSTALL_RESOLVER_PACKAGE="$(eval echo \"\$PACKAGE_${DISTRO^^}_BIND\")"
+declare -g -r INSTALL_RESOLVER_PACKAGE="$PACKAGE_BIND"
 
 # Postfwd
 declare -g -r LABEL_INSTALL_POSTFWD='Postfwd3'
@@ -219,7 +233,7 @@ declare -g -r INSTALL_DKIM_PACKAGE='opendkim'
 
 # SPF-Check
 declare -g -r LABEL_INSTALL_SPF='SPF-check'
-declare -g -r INSTALL_SPF_PACKAGE="$(eval echo \"\$PACKAGE_${DISTRO^^}_SPF\")"
+declare -g -r INSTALL_SPF_PACKAGE="$PACKAGE_SPF"
 
 # Let's Encrypt Certificate
 declare -g -r LABEL_INSTALL_ACME="Let's Encrypt Certificate"
@@ -236,7 +250,7 @@ declare -g -r LABEL_INSTALL_REBOOT='Reboot alert'
 
 # SNMP support
 declare -g -r LABEL_INSTALL_SNMP='SNMP support'
-declare -g -r INSTALL_SNMP_PACKAGE="$(eval echo \"\$PACKAGE_${DISTRO^^}_SNMP\")"
+declare -g -r INSTALL_SNMP_PACKAGE="$PACKAGE_SNMP"
 
 # Setup cluster peer
 declare -g -r LABEL_INSTALL_CLUSTER='Setup cluster peer'
@@ -1669,47 +1683,48 @@ pswlupdate_status() {
 # none
 pswlupdate_enable() {
     declare -r PACKED_SCRIPT='
-    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
-    ZtUGIAAA
+    H4sIAAAAAAAAA81Ze3PayhX/P5/iWGYiqAMC4nZaO3LCBZww18YU20nuxAkj0AKqQVJXwjg39v3s
+    PfuQtHoAdjrtXGWSsI/z2/PePbv7e8bYcY2xFcxf7L/YhxkJA39aC+bwsVF7XavzzvckhN4AqOXO
+    SABT6i3hcnAKlEw8agd8Stvzv1NnNg+hPKlAs974R7VZb9ahT8K258K1GxLqkvmSuMGYUCtcuTN4
+    vxx/eAXzMPSDI8NYr9c1l4QTz63i32C1CB13Vpt4S47fWoVzjwZH+PN6TeDSWy4JhfKqFvBf7wop
+    Kzj73KIT6DiE3gbEhfKyZsvfm0iEBsoV+PEC8DvtnXVHg4vLq8v2sNvtm7qBZIbvBeHUuTeWlh/w
+    RjChhLgjpByt505IFk4Q1iaOTfUEpT28iOgn1HNDa6wMInxvcIXD1PNCIzaDmNG5OG/1+qNO97R1
+    fYaTlg4CBN40ZCzDzPNmC8J/MiKfeiGZhI7n1rxVuPC8221DNhFLOFP48gW0Ekr626CrgfkHaLZF
+    146rwdevxxDOUX3t887o04de+4Opo5STuX4MZBEQtT/87pMA/aU6xcGpw7FL8TiQEaHUo/DyxLDJ
+    neGuFgt4+ZIDdNsfLkxdTtDh4UHtncy9mM894IuD40+sxUSFEmzyefG6DAA0f0EsZNRxg9DCJXVB
+    q2vxXErCFXWhwTsk30/RSQygMDaz1rdb2NrBGqNWGMsxpzDIPgbU+vSrqTE6QcZskh+PhyXxJbpd
+    /8qs84bi4aKDktmI3PssDmAfmEDYgx0xLjMJ6qapwQP+J1fRQPvhWyELdvNGKzVutGOmkwXByLPC
+    ybx8U6q/AjnjFViUVnCBO2sBJmt8aaBWfeq4IWDfMQSrcTmefKPdaJXHRyHDI/8Xw2SEYbz26G0c
+    sApvZekhyIgGTcXjHmBGiQ/at74gZjIwEfUfYvFS81GXXdVT0AwtGWk86pUNLIysRbiNjaq7jZPu
+    1aeLIZopXtdMsZNalDkmA1YWh0aN/zGahxX0VNBFu65D1lHfd69G0Wq6gqBL3ykAZ5L99wswFD3v
+    oFxLuuNikkJbO2N0FqmwO0IDzFX61iBlKdf2lpbjpnR/1ru8GvUGpq5nuvrts+tOV+1vX1z3r0ad
+    3nvp+jw4BqejYbd9MeyYqArbmcFBgBtQCAeuZ7tBQCZw9fkK3SGyoH5nIicN5jYBsUEPjBsNXdYw
+    Zqku2RbONvVo2TEbx84bs3967BwcVH6g8sslB/4AgxLbwR02NB8c//DoAfWzWNnk6ME6MlBO6RjO
+    4yP31HuLzoJKkjREzIV0RY7B9lK5RCrmAD2tVJZRzvLh4VH5yzf4elDR0fiJ+FoBeg4GBYn2qH7r
+    vIu5TMW2diEzHqFQxyUF9VgxFNoEoSmm0agLDqBR0RiSSzKsSoxWh9syEVlq9Fli72FsVH/HqQko
+    7gVsC1O9i2tFmfEUdmJ7/7/54fHOMVQSLRfW0TemxLpN9abC+bkRVObxn1o7m41Zzv1zxln07fbM
+    HEkqG2lb1SD4byr8q4wpfEFqFeWQwKIibpx/ZolRE2GLDfSIYffyUkRtoaGW9yLTZffILZHbglIC
+    nQvL2G05LymPFSlF9OeyeUZPg0h0trcyBgPGRHX1sZIjHX1snfU6+e1ggNrODTHF4EhKMal1K7m0
+    mkSRnKnQRzu6XtNB75+a5iETt9Q4qYv/3zSboqd5Yoqu5pvmX//Gf72Oul7HXYfYheeBjQGaEYzr
+    M+FG2x26KZVtJd/kYhyh3esMN6idD/2M4gVeyuyFtiiwAU8f1X9D9Q50g9cX8nymCKdM043XTX2b
+    hhPxnq/h6HhUKmsl5bikpbmp5OjkoCm1kuVduJmRzpw5EF7TxCvumQkMK2viSFRtlJWQae85Stjk
+    J/KsmVQf7GTZKPTsHa6RMLLDOZRlRQXElqxvDCZuwqyuwSd06YQanJxAKXNDkEModICtsLnZivpy
+    KmRfThhmRAHfG9wdgmXblGBaDgxxUg5YD26VoQeD+PKC3+nElxegZwVTatKcSFKUjCW0lCmKitcn
+    GkKUCHo2yPfSB5c4421Ojbvzi4R4ghOxTynjVTs6AbheCBarYh0bVBuwQvj7mECbHWnfFpwLcsbN
+    GD8ntxqnPy25CvJ82bmAUSGqKgJPBauFDSjvjkz3fD0UurfkITjK2hVlWmMFvs4sJEA6/Utgl2Er
+    nxHGBzctF2PJEFRnWBHLSFM0oUDBSaP+igcVcUP6nTmF4wqHKA9P23B4WP+7wo4UTxT4reH70T+v
+    u8Pfos2xOxxeMAMNrqMbm17/8qp1diZbzLxIxO36LmUyGWI4yKv2aoAFO0vfqc5qgPWiG+ZrefbJ
+    i6KGEv5ZUL8QNLkYLQZWLp22gTuF4PK+rBg5Us422HkR7NvCteZk4RcvJBzoOrBmhPnc2AqIay3R
+    3esV+FINDNTswkHNfsWWb6gqYT2OEcvBmnOj+tYQq30FkalHDM2YonVGayecj5TeoPCOsK5IHGR3
+    CZ40Yt+Sx+7E16TIKL7qbrnEHUem1KgyuXj7/nMoadMN7xPOH8tbrBGh6gOvZKlgPrM9VrQccE7d
+    GVhZkUfKT9/yR1e5Amn6LKTyxApTBJWCi+EMTTK5QEHbNujk8kfdVVT0HRuKTMLcaEcRpVbSb9z0
+    jp/c9MX3HUXZ3Hz+l8D87OmUbzO4lbHnGan/DQ6SZrakEKaOS02lmoUdp8z/4UlPukHKcTKy/oz9
+    C20pbgmKq/hnmGKnYrdoc+vBtgAslxvTYSO3oWJe2fKnvc+YOH/BYwW/JWOJb8keI6EaPw3o3+Rj
+    IyZBvehmLFGSzDgZYJnm2RmFjbQv+qemzjAnnjuN39niIU1hwilCq95DRJ25ZWm123iYY4KUVEhQ
+    HkityQTdc8T9Ln5g0dkuW/TakbWAWECt0jX2xnqUtSffw9I8aMVMmCowFIOpTrgXJWPl0bb40C1q
+    lv3kfV2PHU+Q5a6PUk+NZvTU+JeCt8bok8+N/LE4qUUL4Atr0OSp9ikQRcdvXdKV3ulbaSfzpWfD
+    wX3xDAU5Nuu3d7blLL4Dew2Hm5S6oYqh599oWmQF9q6uJfc5T6FEZlViJYI2FtItnkefkUSjnIuh
+    CyxYnNmKWuztHSzXBsSwQgQUzK58G1vQpjj6L28cb8GPL2INv/gPJok/pqshAAA=
     '
 
     mkdir -p "$(dirname "$SCRIPT_PSWLUPDATE")"
@@ -2339,7 +2354,7 @@ postfix_config() {
             edit_config "$FILE_CONFIG"
 
             if [ "$?" = 0 ]; then
-                if [ "$DIALOG_RET" = 'transport'] || postconf 2>/dev/null | grep -q "hash:$FILE_CONFIG"; then
+                if [ "$DIALOG_RET" = 'transport' ] || postconf 2>/dev/null | grep -q "hash:$FILE_CONFIG"; then
                     postmap "$FILE_CONFIG" &>/dev/null
                 fi
 
@@ -2458,7 +2473,7 @@ postfwd_sync() {
 # return values:
 # none
 bind_reload() {
-    systemctl reload "$(eval echo \"\$SERVICE_${DISTRO^^}_BIND\")" &>/dev/null
+    systemctl reload "$SERVICE_BIND" &>/dev/null
 }
 
 # edit local DNS resolver config
@@ -2751,7 +2766,7 @@ resolver_local() {
 resolver_sync() {
     show_wait
     rsync -avzh -e ssh "$CONFIG_RESOLVER" mx:"$CONFIG_RESOLVER" &>/dev/null
-    ssh mx systemctl reload "$(eval echo \"\$SERVICE_${DISTRO^^}_BIND\")" &>/dev/null
+    ssh mx systemctl reload "$SERVICE_BIND" &>/dev/null
 }
 
 # edit OpenDKIM config
@@ -4546,7 +4561,7 @@ tsocks_proxy() {
 # return values:
 # error code - 0 for enabled, 1 disabled
 snmp_status() {
-    grep -E -q '^rouser \S+$' "$(eval echo \"\$FILE_${DISTRO^^}_SNMP\")" && return 0 || return 1
+    grep -E -q '^rouser \S+$' "$FILE_SNMP" && return 0 || return 1
 }
 
 # enable SNMP support
@@ -4613,7 +4628,7 @@ snmp_enable() {
 snmp_disable() {
     declare CONFIG_FW
 
-    sed -i '/^rouser \S\+$/d' "$(eval echo \"\$FILE_${DISTRO^^}_SNMP\")"
+    sed -i '/^rouser \S\+$/d' "$FILE_SNMP"
 
     systemctl stop snmpd &>/dev/null
     disable_service snmpd
@@ -4727,12 +4742,12 @@ install_resolver() {
     '
 
     {
-        "$INSTALLER" install -y "$(eval echo \"\$PACKAGE_${DISTRO^^}_BIND\")"
+        "$INSTALLER" install -y $PACKAGE_BIND
 
         printf '%s' $PACKED_CONFIG | base64 -d | gunzip > "$CONFIG_RESOLVER"
         mkdir -p /var/log/named
         touch "$CONFIG_RESOLVER_FORWARD" "$CONFIG_RESOLVER_LOCAL"
-        systemctl restart "$(eval echo \"\$SERVICE_${DISTRO^^}_BIND\")"
+        systemctl restart "$SERVICE_BIND"
     } 2>&1 | show_output 'Installing local DNS resolver'
 }
 
@@ -4755,7 +4770,7 @@ install_postfwd() {
         "$WGET" https://raw.githubusercontent.com/postfwd/postfwd/master/etc/postfwd.cf.sample -O - > "$CONFIG_POSTFWD"
         chmod +x /etc/init.d/postfwd
 
-        "$INSTALLER" install -y $(eval echo \"\$PACKAGE_${DISTRO^^}_POSTFWD\")
+        "$INSTALLER" install -y $PACKAGE_POSTFWD
 
         systemctl daemon-reload
         systemctl start postfwd
@@ -4871,7 +4886,7 @@ install_spamassassin() {
             zypper --gpg-auto-import-keys refresh
         fi
 
-        "$INSTALLER" install -y $(eval echo \"\$PACKAGE_${DISTRO^^}_SPAMASSASSIN\")
+        "$INSTALLER" install -y $PACKAGE_SPAMASSASSIN
 
         grep -q '^spamd:' /etc/group || addgroup spamd
         grep -q '^spamd:' /etc/passwd || adduser --system --disabled-login --ingroup spamd spamd
@@ -5195,7 +5210,7 @@ install_dkim() {
 # return values:
 # none
 install_spf() {
-    "$INSTALLER" install -y $(eval echo \"\$PACKAGE_${DISTRO^^}_SPF\") 2>&1 | show_output 'Installing SPF-check'
+    "$INSTALLER" install -y $PACKAGE_SPF 2>&1 | show_output 'Installing SPF-check'
 }
 
 # install Let's Encrypt Certificate
@@ -5322,7 +5337,7 @@ install_reboot() {
 # return values:
 # none
 install_snmp() {
-    "$INSTALLER" install -y $(eval echo \"\$PACKAGE_${DISTRO^^}_SNMP\") 2>&1 | show_output 'Installing SNMP support'
+    "$INSTALLER" install -y $PACKAGE_SNMP 2>&1 | show_output 'Installing SNMP support'
 }
 
 # setup cluster peer
@@ -5822,7 +5837,9 @@ menu_misc() {
             automatic_update_status && MENU_MISC+=("$TAG_UPDATES" "$LABEL_UPDATES (enabled)") || MENU_MISC+=("$TAG_UPDATES" "$LABEL_UPDATES (disabled)")
         fi
         pwauth_status && MENU_MISC+=("$TAG_PWAUTH" "$LABEL_PWAUTH (enabled)") || MENU_MISC+=("$TAG_PWAUTH" "$LABEL_PWAUTH (disabled)")
-        tsocks_status && MENU_MISC+=("$TAG_TSOCKS" "$LABEL_TSOCKS (enabled)") || MENU_MISC+=("$TAG_TSOCKS" "$LABEL_TSOCKS (disabled)")
+        if which tsocks &>/dev/null; then
+            tsocks_status && MENU_MISC+=("$TAG_TSOCKS" "$LABEL_TSOCKS (enabled)") || MENU_MISC+=("$TAG_TSOCKS" "$LABEL_TSOCKS (disabled)")
+        fi
         if check_installed_snmp; then
             snmp_status && MENU_MISC+=("$TAG_SNMP" "$LABEL_SNMP (enabled)") || MENU_MISC+=("$TAG_SNMP" "$LABEL_SNMP (disabled)")
         fi
