@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.43.0 for Postfix
+# menu.sh V1.44.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,9 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - added option for toggling tsocks proxy
-# - added support for Rspamd cluster for Redhat
-# - updated getspf script
+# - bugfix
 #
 ###################################################################################################
 
@@ -607,7 +605,6 @@ declare -g -r CONFIG_RSPAMD_LOCAL="$DIR_CONFIG_RSPAMD/rspamd.conf.local"
 declare -g -r CONFIG_RSPAMD_REDIS="$DIR_CONFIG_RSPAMD/local.d/redis.conf"
 declare -g -r CONFIG_RSPAMD_GREYLIST="$DIR_CONFIG_RSPAMD/local.d/greylist.conf"
 declare -g -r CONFIG_RSPAMD_OPTIONS="$DIR_CONFIG_RSPAMD/local.d/options.inc"
-declare -g -r CONFIG_RSPAMD_HISTORY="$DIR_CONFIG_RSPAMD/local.d/history_redis.conf"
 declare -g -r CONFIG_RSPAMD_SARULES="$DIR_CONFIG_RSPAMD/local.d/spamassassin.conf"
 declare -g -r CONFIG_RSPAMD_REPUTATION="$DIR_CONFIG_RSPAMD/local.d/url_reputation.conf"
 declare -g -r CONFIG_RSPAMD_PHISHING="$DIR_CONFIG_RSPAMD/local.d/phishing.conf"
@@ -669,7 +666,6 @@ RSPAMD_FEATURE+=('reject')
 RSPAMD_FEATURE+=('bwlist')
 RSPAMD_FEATURE+=('bayes')
 RSPAMD_FEATURE+=('headers')
-RSPAMD_FEATURE+=('history')
 RSPAMD_FEATURE+=('spamd')
 RSPAMD_FEATURE+=('sarules')
 RSPAMD_FEATURE+=('rulesupdate')
@@ -711,11 +707,6 @@ RSPAMD_BAYES+=('autolearn = true;' "$CONFIG_RSPAMD_BAYES")
 declare -g -r RSPAMD_HEADERS_LABEL='Detailed headers'
 
 RSPAMD_HEADERS+=('extended_spam_headers = true;' "$CONFIG_RSPAMD_HEADERS")
-
-# Detailed history
-declare -g -r RSPAMD_HISTORY_LABEL='Detailed history'
-
-RSPAMD_HISTORY+=('servers = 127.0.0.1:6379;' "$CONFIG_RSPAMD_HISTORY")
 
 # Spamassassin rules
 declare -g -r RSPAMD_SPAMD_LABEL='Spamassassin integration'
@@ -3691,7 +3682,7 @@ rspamd_info() {
 # return values:
 # error code - 0 for enabled, 1 for disabled
 wlupdate_status() {
-    [ -f "$SCRIPT_WLUPDATE" ] && grep -q '^Host whitelist$' "$CONFIG_SSH" && check_crontab "$CRONTAB_WLUPDATE"
+    [ -f "$SCRIPT_WLUPDATE" ] && grep -q '^Host addresslist$' "$CONFIG_SSH" && check_crontab "$CRONTAB_WLUPDATE"
 }
 
 # enable SA whitelist update
@@ -3702,18 +3693,19 @@ wlupdate_status() {
 wlupdate_enable() {
     declare -r DIR_SSH="$HOME/.ssh"
     declare -r PACKED_SCRIPT='
-    H4sIAOgeh14AA3VUYW+iQBD9zq+YUlM0PcCa3JdebDRKTxNrG7HXXFpLVliFlF3I7nJt77z/fgNV
-    QeqR1azuvjdvZt5wemIvI24viQw17RSyNCCKeq9hpGgcSWXJEH5cWG2rrZ3i8SBJ30W0DhU0/RZ0
-    2p02TKkaJBzuuaKC05BRLpdUEJXxNXxny9EX4FT5CTfxI7NYRXxt+Qkr6PqZChNxCTdE+DCMqHiR
-    lEOTWcF23zuKbWma64680a077xp7qYbm3PTHE2/mDMZ3Y2eKZ9kr7WUyYYwKK6CGpl2PJ473MBrP
-    nck4B9tIb8uUMCIlLizEns5biYRZ/gpR81l/6t7dzubeTf9uC0oTqVbRm81IKm0lCJdpIlCDlhN7
-    /eFw5rhuV280JVZQb+z06tC5sgP6y+ZZHMMGlAAzAONJGC1d06IVPIL5G+9XWXRYfAMVUq4BPsNb
-    zHJayRJjUD9MEFTLX98AeX0B81rv6WD8SUXEFTQ6f/NQOVPxtYVM+j+7hlH+jTJWyHiQOeqAs7Mq
-    AkOvBU1Bf27UZYH+Gf6hp6oEdhLBeHx6wrVYGMekbqtShj6qJYjWcC7RUQrOeRJwKakP7A2BdXW5
-    FpnfM7nIu0CiGMyLIwKrpSq7c6Cj0pv8+ejFgHCeKAgoTgWLOAWWhxA0Ju96efUtUnBR/KSxpIcU
-    hiNEImBNVW57KG2OKgsyU2LR7ot5hYfd6QL+CzNdkEyl3ar8y85XHUyBKTVDNDQnjLZ65R692dKP
-    GKtQuoq0veq66beGPHQxlpyi16X9XJsysAv3b2t8sjPf4bDmHd9s8KxOe9LN5ftEfYa0/teeGsXV
-    Z+gesN/Id6ko81XRxoQEUH1vwFk51rvq4PoHZwjOYF4FAAA=
+    H4sIAAAAAAAAA3WUbW/aMBDH3+dTXANqiLokBWlvOtGBIBtIlFZAV00tjUxiiNXYiWzTh419911S
+    HgKlUUAOzv/u5//dUTnxZkx4M6Jiw6jAMouIpsFLzDRNmNKuiuFX3a2750YFtztp9ibZItZQC21o
+    nDfOYUh1JxVwKzSVgsacCjWjkuilWMBPPut9AUF1mAoHP2qZaCYWbpjyIlx7qeNUXsAVkSF0GZVP
+    igqocTdar1tHtbZhjMe9oHc9njQtEkWSKpXDWoZ/1e4PgpHf6d/0/SHuLl9oa6lSzql0I2oZxo/+
+    wA/uev2JP+jncg8TeCojnCiFN1qxPXswlyl3wzmqJqP2cHxzPZoEV+2btShLlZ6zV4+TTHlaEqGy
+    VCKDkQcO2t3uyB+Pm2a1ptBDs7ohNsE6S6D2ndm1baZVRqQWVNoWNC69iD57YpkksAItwYnAepAW
+    PiwkzcDxwXkG67FWWVVtyzYNg83hHpw/mKKc2ITpN9AxFQbg1b1GY4YlYxCLhnGKogPLzBWQlydw
+    fpgtJP2bSSY0VBv/8lR5pOJrLRm0fzcta/czYswx4p5ZyAGnp2UFpi5OYj5WD7HA/Ch/5ymTwAYR
+    rPuHB7ynU+sY6tqVXeqjLBFbwJnCNtRwJtJIKEVD4K8oPKTLWVT+niNkXhvCEnDqRwDLVu2qs8dR
+    qk1+vdeiQ4RINUQUR4kzQYHnKSRNyJu5e/WVaagXjzRRdD+E5UuZSlhQnc8KbBss96wI5ig07bYY
+    crjb7E7hU5kzBsV11izjXzS+muBIPFItxhkQhFO7tVtjx9rmkcYqSOfM2FIfzsm6Ife7GC2nOAHK
+    ezwYTPCK7l97fLJpvv35ziu+WuHeYdiTZo4fEv1RYn9WnoMQlx+lW8F2od6UpjzURRlTEkH5rwZO
+    d8O+cQfv/zVQIbuTBQAA
     '
     declare IP_ADDRESS RET_CODE SSH_PORT SSH_KEY
 
@@ -3738,8 +3730,8 @@ wlupdate_enable() {
                 if [ "$RET_CODE" = 0 ]; then
                     show_wait
 
-                    if ! [ -z "$(ssh -o 'StrictHostKeyChecking=accept-new' -p "$SSH_PORT" "whitelist@$IP_ADDRESS" -i "$SSH_KEY" 2>/dev/null)" ]; then
-                        echo $'\n''Host whitelist'$'\n\t'"HostName $IP_ADDRESS"$'\n\t''User whitelist'$'\n\t'"Port $SSH_PORT"$'\n\t'"IdentityFile $SSH_KEY"$'\n' >> "$CONFIG_SSH"
+                    if ! [ -z "$(ssh -o 'StrictHostKeyChecking=accept-new' -i "$SSH_KEY" -p "$SSH_PORT" "addresslist@$IP_ADDRESS" '+l (?i)(whitelist|partner)' 2>/dev/null | tr -d '\r' | grep -E -v '^(#|$)')" ]; then
+                        echo $'\n''Host addresslist'$'\n\t'"HostName $IP_ADDRESS"$'\n\t''User addresslist'$'\n\t'"Port $SSH_PORT"$'\n\t'"IdentityFile $SSH_KEY"$'\n' >> "$CONFIG_SSH"
 
                         mkdir -p "$(dirname "$SCRIPT_WLUPDATE")"
                         printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$SCRIPT_WLUPDATE"
@@ -3772,7 +3764,7 @@ wlupdate_disable() {
 
     rm -f "$SCRIPT_WLUPDATE"
 
-    sed -i '/^Host whitelist/,/^$/d' "$CONFIG_SSH"
+    sed -i '/^Host addresslist/,/^$/d' "$CONFIG_SSH"
 }
 
 # checks status of given Spamassassin feature
