@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.44.0 for Postfix
+# menu.sh V1.45.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - bugfix
+# - added support for local DNS resolver for Redhat
 #
 ###################################################################################################
 
@@ -87,6 +87,27 @@ if [ "$DISTRO" = 'redhat' ]; then
 
     declare -g -r PACKAGE_BIND='bind'
     declare -g -r SERVICE_BIND='named'
+    declare -g -r CONFIG_RESOLVER='/etc/named.conf'
+    declare -g -r CONFIG_RESOLVER_FORWARD='/etc/named.conf.forward-zones'
+    declare -g -r CONFIG_RESOLVER_LOCAL='/etc/named.conf.local-zones'
+    declare -g -r DIR_ZONE='/var/named'
+    declare -g -r CONFIG_BIND='
+    H4sIAAAAAAAAA7VY227jIBB971egvNtJqm2rVb9gX/YXKmJIgorBCziNU+2/7xiwPbkQoZWTPiT1
+    nMMchmFmEt04oZUl308EXkwYXjltOrJYHqhZKlpztngPtrZuiq2QHNuWjDq6rGi15x89oGSbCLeO
+    OmGdqGyC5D9+9DBbuqOLtJrXmUxAXrFBfWusULt7zHJEDVJ5ZbR2d92VAyhyNkKxT96NHO6qYXVA
+    lWAaNkQV3XFWePDN+C5ZB++iioRGsGFR06oICUuDaZRsLZxbv+oVNtqQBqYsyC8OVArYEdgIbZ0e
+    9B0L5Q+wcE6S19UqPAfEvlBHpmsqFFEDWihRU1kYbhtIG25Jx20wSTgzrgoQdXgl38BQ/J38vbCB
+    Yf38Vq7gbz1aYQeOm4LCy9N/TIvGowLi+IhKqb+KyXBrxbhhrugGguOpYHk6gSayKBfk1++Y8K5r
+    ONkL5UYlAAjBrugisKTe7SBZIqPaU6W4JKY5fXh4eDyx/cECJ54G4Er4b0EO3Ou15IVYceLkZVW/
+    j1TLwSxcR2IuTJbGgLpitI9h6JVhPYxvaStdlqaIvdC1Xv2HMCdqnha144obKrNERezjRfWXekMt
+    zwtVBHtZcymwffICO0vBAH58YCqttmKXJSpAZw0KlBQtYYG8WxXBjw/KcQulSagsVRE7a1j8mrrN
+    u9gDeFYFSjuxzcvVAJ3VeyUFV3m7D9BZvbeqpg56I8sSMKJn1fCnBTK3WQoido5rcd1yshOGuy9t
+    PvMyJmDnPbQGqnZeeQ/QWb0zYZs+C/LaSwTPq8BPP3n+PfTxVVSCN8go0/vIEoYJD5HXv5035c6C
+    H6QrPpC6ovLtofcGUnDXfymIcxnSgKe6BCnOTYiEp66UpzjWYFd4LDoL08gaRhEcJDzKJJyFYQGR
+    0KCRoAz9HZHO5oMELTZgxMLt+x4JmuYla2i6CVrodYiE+mQqEL5B4UBMzS1BGVsKYp03pQQxdgJE
+    w30ktadQjfGmUC2/cXdGmb6OYo1TDU6lYCx9OAVx6UzRfMXCpKnaJSi4liDiVU1K5WJzwmkYv/eN
+    4B4vVCVbdvE7wLZa/1w/l/2Xzv5Xg5uY6beCW+b+npRbbb6oYcW9dTzQF6oR9g+Z70Ff2REAAA==
+    '
 
     declare -g -r PACKAGE_POSTFWD='perl-Sys-Syslog perl-Net-Server perl-Net-DNS'
 
@@ -105,6 +126,25 @@ elif [ "$DISTRO" = 'debian' ]; then
 
     declare -g -r PACKAGE_BIND='bind9'
     declare -g -r SERVICE_BIND='bind9'
+    declare -g -r CONFIG_RESOLVER='/etc/bind/named.conf'
+    declare -g -r CONFIG_RESOLVER_FORWARD='/etc/bind/named.conf.forward-zones'
+    declare -g -r CONFIG_RESOLVER_LOCAL='/etc/bind/named.conf.local-zones'
+    declare -g -r DIR_ZONE='/var/cache/bind'
+    declare -g -r CONFIG_BIND='
+    H4sIAAAAAAAAA7VXy27jMAy89yuE3J3HYtse8jELxaYdYWXJK8l5FfvvS0uyzaRVISyc9FDUnDFH
+    LDVkdOeEVpZ9vDD8VMJA6bS5stXmxM2m5OURNgehqtU+AJS1UBYnLkXFBybjvdMh1vJLoTyjcE6y
+    t+02PEfEsVCXSrdcKKZGtFCi5bIwYDsUAJZdwYaQFNaBKrQqTm/sAxkK9uzvQwwDux/v6y3+7KZo
+    LaQDU3D8ePrP+aV4sN7YQfH0iEupz8Uc+OqN8cCg+EFCoGLkReqmEaqJZSuPXCmQzHS3XygB4uOo
+    CGIxkbNRvIVqg7g1/rViJ/CZLXtlVtyAvW7b/US1gGHhrqy6Ik2Uc6QzQrliik8HGpRRPRXUvJcu
+    S1PEPujabf9DmBMtpEU1oMBwmSUqYp8vCpuZH7iFvFJFsJe1lAI7tCGysxSM4OcXptSqFk2WqABd
+    tChoDlriC/JuVQQ/vyiXGk1GqCxVEbtoWfw7dZ93sUfwogqUdqLO69UAXTR7KQWovNMH6KLZe9Vy
+    h1OuyhIwoRfV8KdHMtgsBRG7xLX4PHKyGwbcWZvfeR0TsMv+0zp07Tx7D9BFs1fCdkMX5I2XCF5W
+    gd9j8vJ76PNdVGI27Cgz5MgSRglPkTf8uh/KV4t5iK74QOqSy/en3htswWZYxONeRjTQrS5BinsT
+    IdGtK5UprjU0FV2L7so0scZVhBaJrjKJZGFZICSyaCQo43wnpLv9IEGLA5iw6Pj+joRD85E1Dt0E
+    Lcw6QiJzMlUIP6BoIebhlqBMI4Ww7odSghgnAaHROZI6U3Bjeiji5V/cnUmm91GqcfbgVAtG66Mt
+    SK0zRfOORUmz2yUo1EsI8ZMnpXqxu9E2jN/7JvCAF6qUfTW4GLjSf4cONrYeOn0dL3Fxwy+3Fl3+
+    e3StzZmbKhPt3WnC/gPUlCXc4g8AAA==
+    '
 
     declare -g -r PACKAGE_POSTFWD='libnet-server-perl libnet-dns-perl'
 
@@ -123,6 +163,25 @@ elif [ "$DISTRO" = 'suse' ]; then
 
     declare -g -r PACKAGE_BIND='bind'
     declare -g -r SERVICE_BIND='named'
+    declare -g -r CONFIG_RESOLVER='/etc/bind/named.conf'
+    declare -g -r CONFIG_RESOLVER_FORWARD='/etc/bind/named.conf.forward-zones'
+    declare -g -r CONFIG_RESOLVER_LOCAL='/etc/bind/named.conf.local-zones'
+    declare -g -r DIR_ZONE='/var/cache/bind'
+    declare -g -r CONFIG_BIND='
+    H4sIAAAAAAAAA7VXy27jMAy89yuE3J3HYtse8jELxaYdYWXJK8l5FfvvS0uyzaRVISyc9FDUnDFH
+    LDVkdOeEVpZ9vDD8VMJA6bS5stXmxM2m5OURNgehqtU+AJS1UBYnLkXFBybjvdMh1vJLoTyjcE6y
+    t+02PEfEsVCXSrdcKKZGtFCi5bIwYDsUAJZdwYaQFNaBKrQqTm/sAxkK9uzvQwwDux/v6y3+7KZo
+    LaQDU3D8ePrP+aV4sN7YQfH0iEupz8Uc+OqN8cCg+EFCoGLkReqmEaqJZSuPXCmQzHS3XygB4uOo
+    CGIxkbNRvIVqg7g1/rViJ/CZLXtlVtyAvW7b/US1gGHhrqy6Ik2Uc6QzQrliik8HGpRRPRXUvJcu
+    S1PEPujabf9DmBMtpEU1oMBwmSUqYp8vCpuZH7iFvFJFsJe1lAI7tCGysxSM4OcXptSqFk2WqABd
+    tChoDlriC/JuVQQ/vyiXGk1GqCxVEbtoWfw7dZ93sUfwogqUdqLO69UAXTR7KQWovNMH6KLZe9Vy
+    h1OuyhIwoRfV8KdHMtgsBRG7xLX4PHKyGwbcWZvfeR0TsMv+0zp07Tx7D9BFs1fCdkMX5I2XCF5W
+    gd9j8vJ76PNdVGI27Cgz5MgSRglPkTf8uh/KV4t5iK74QOqSy/en3htswWZYxONeRjTQrS5BinsT
+    IdGtK5UprjU0FV2L7so0scZVhBaJrjKJZGFZICSyaCQo43wnpLv9IEGLA5iw6Pj+joRD85E1Dt0E
+    Lcw6QiJzMlUIP6BoIebhlqBMI4Ww7odSghgnAaHROZI6U3Bjeiji5V/cnUmm91GqcfbgVAtG66Mt
+    SK0zRfOORUmz2yUo1EsI8ZMnpXqxu9E2jN/7JvCAF6qUfTW4GLjSf4cONrYeOn0dL3Fxwy+3Fl3+
+    e3StzZmbKhPt3WnC/gPUlCXc4g8AAA==
+    '
 
     declare -g -r PACKAGE_POSTFWD='perl-Unix-Syslog perl-Net-Server perl-Net-DNS perl-IO-Multiplex'
 
@@ -544,10 +603,6 @@ ADDON_CONFIG+=('fail2ban')
 
 # Local DNS resolver
 declare -g -r LABEL_ADDON_RESOLVER='Local DNS resolver'
-declare -g -r CONFIG_RESOLVER='/etc/bind/named.conf.options'
-declare -g -r CONFIG_RESOLVER_FORWARD='/etc/bind/named.conf.forward-zones'
-declare -g -r CONFIG_RESOLVER_LOCAL='/etc/bind/named.conf.local-zones'
-declare -g -r DIR_ZONE='/var/cache/bind'
 
 # Postfwd
 declare -g -r LABEL_ADDON_POSTFWD='Postfwd3'
@@ -3730,7 +3785,7 @@ wlupdate_enable() {
                 if [ "$RET_CODE" = 0 ]; then
                     show_wait
 
-                    if ! [ -z "$(ssh -o 'StrictHostKeyChecking=accept-new' -i "$SSH_KEY" -p "$SSH_PORT" "addresslist@$IP_ADDRESS" '+l (?i)(whitelist|partner)' 2>/dev/null | tr -d '\r' | grep -E -v '^(#|$)')" ]; then
+                    if ! [ -z "$(ssh -o 'StrictHostKeyChecking=accept-new' -i "$SSH_KEY" -p "$SSH_PORT" "addresslist@$IP_ADDRESS" 2>/dev/null | tr -d '\r')" ]; then
                         echo $'\n''Host addresslist'$'\n\t'"HostName $IP_ADDRESS"$'\n\t''User addresslist'$'\n\t'"Port $SSH_PORT"$'\n\t'"IdentityFile $SSH_KEY"$'\n' >> "$CONFIG_SSH"
 
                         mkdir -p "$(dirname "$SCRIPT_WLUPDATE")"
@@ -3742,7 +3797,7 @@ wlupdate_enable() {
 
                         return 0
                     else
-                        show_info 'Error' 'Error getting whitelist from server.'
+                        show_info 'Error' 'Error getting address lists from server.'
                     fi
                 fi
             fi
@@ -4717,26 +4772,10 @@ install_postfix() {
 # return values:
 # none
 install_resolver() {
-    declare -r PACKED_CONFIG='
-    H4sIANPPBV4AA7VXwW7bMAy99yuE3J2kw9oe+jGDYjOpMJnyJDltUuzfR0uKzLRVIQxOeihivmc+
-    M9QjbQavDDrxfifo0ykLrTf2JFabo7SbVrYvsNkp7FbPEYDOQdscpVadnJhCjt7EWC/fGgyMxnst
-    HrfbeJ0QLw2+daaXCgVe0ApVL3VjwQ0kAJw4gYshrZwHbAw2x0fxTgyEZ/H3Q4wC9z+e1lv6u8/R
-    vdIebCPpE+g/55vSg43WTYrzJam1eW3mwFd3TA8MKHcaIpUid2fSJFYKKRuuUvH8aQAqAumzWU0G
-    rbvdKlK1ORwUHhKpfZGIoIUdzr8CPl6e6eF3IM4GZQ/dhnBr+rYSRwiinXgQTp1BPGz750x1QGHl
-    T6I7EU21c2SwpKfJ8VyLSRnX08FejtpXaUrYD7rut/8hzKseyqIOgGClrhKVsLcXRedA7qSDulIl
-    cJC1lAI3dTCxqxRcwLcvTGtwrw5VoiJ00aKQrxhNN6g7VQl8+6K87cmfFFapSthFyxLuaca6g30B
-    L6oAjVf7ul6N0EWzt1oB1j19hC6afcReehqQXZWAjF5Uw5+RyOCqFCTsEsfi88ipbhjwr8b+ruuY
-    iF32RxvItevsPUIXzd4pN0xdUDdeEnhZBWEFqssfoLd3UU3ZqKPslKNKGCfcRN7073oonxzlYbrS
-    BW1aqZ9uem6oBQ/TDp/2MqaBb3UFUtqbGIlvXaVMaa3hqfhadFWmzLqsIrxIfJUpJIvLAiOxRaNA
-    ucx3RrraDwq0NIAZi4/v70g0ND+yLkO3QIuzjpHYnCwVIgwoXoh5uBUoeaQw1vVQKhDTJGA0PkdK
-    zxTdmD8U8/Ivzk6WGXyUa5w9uNSCyfp4C3LrLNGCY3HS7HYFCvcSRvzkSaVeHM68DdN7XwZPeIWt
-    HrvJxcC34fU72th66vT13thXabtmegd15PLfo4PfZOw/BKgIte8PAAA=
-    '
-
     {
         "$INSTALLER" install -y $PACKAGE_BIND
 
-        printf '%s' $PACKED_CONFIG | base64 -d | gunzip > "$CONFIG_RESOLVER"
+        printf '%s' $CONFIG_BIND | base64 -d | gunzip > "$CONFIG_RESOLVER"
         mkdir -p /var/log/named
         touch "$CONFIG_RESOLVER_FORWARD" "$CONFIG_RESOLVER_LOCAL"
         systemctl restart "$SERVICE_BIND"
