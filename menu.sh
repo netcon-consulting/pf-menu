@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.45.0 for Postfix
+# menu.sh V1.46.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,8 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - added support for local DNS resolver for Redhat
+# - Spamassassin whitelist updates also update sender IP whitelist
+# - added Rspamd setting for automatic whitelist updates
 #
 ###################################################################################################
 
@@ -39,11 +40,13 @@ declare -g -r DIR_LIB_RSPAMD='/var/lib/rspamd'
 declare -g -r DIR_CONFIG_FAIL2BAN='/etc/fail2ban'
 declare -g -r CRON_LOGMANAGER='/etc/cron.daily/log_manager.py'
 declare -g -r SCRIPT_REBOOT='/etc/netcon-scripts/reboot-alert.sh'
-declare -g -r CRONTAB_REBOOT='@reboot /etc/netcon-scripts/reboot-alert.sh'
-declare -g -r SCRIPT_WLUPDATE='/etc/netcon-scripts/update_whitelist.sh'
-declare -g -r CRONTAB_WLUPDATE='0 0,6,12,18 * * * /etc/netcon-scripts/update_whitelist.sh'
-declare -g -r SCRIPT_PSWLUPDATE='/etc/netcon-scripts/getspf.sh'
-declare -g -r CRONTAB_PSWLUPDATE='@daily /etc/netcon-scripts/getspf.sh -p -s /etc/postfix/maps/domains'
+declare -g -r CRONTAB_REBOOT="@reboot $SCRIPT_REBOOT"
+declare -g -r SCRIPT_SPAMASSASSIN_WHITELIST='/etc/netcon-scripts/sa_whitelist.sh'
+declare -g -r CRONTAB_SPAMASSASSIN_WHITELIST="0 * * * * $SCRIPT_SPAMASSASSIN_WHITELIST"
+declare -g -r SCRIPT_RSPAMD_WHITELIST='/etc/netcon-scripts/rspamd_whitelist.sh'
+declare -g -r CRONTAB_RSPAMD_WHITELIST="0 * * * * $SCRIPT_RSPAMD_WHITELIST"
+declare -g -r SCRIPT_POSTSCREEN_WHITELIST='/etc/netcon-scripts/getspf.sh'
+declare -g -r CRONTAB_POSTSCREEN_WHITELIST="@daily $SCRIPT_POSTSCREEN_WHITELIST -p -s /etc/postfix/maps/domains"
 declare -g -r CRON_RULES='/etc/cron.daily/update_rules.sh'
 declare -g -r CONFIG_SSH="$HOME/.ssh/config"
 declare -g -r CONFIG_SSHD='/etc/ssh/sshd_config'
@@ -318,7 +321,7 @@ declare -g -a POSTFIX_CONFIG_SERVER
 
 POSTFIX_CONFIG_SERVER=()
 POSTFIX_CONFIG_SERVER+=('postscreen')
-POSTFIX_CONFIG_SERVER+=('pswlupdate')
+POSTFIX_CONFIG_SERVER+=('postscreen_whitelist')
 POSTFIX_CONFIG_SERVER+=('client')
 POSTFIX_CONFIG_SERVER+=('sender')
 POSTFIX_CONFIG_SERVER+=('recipient')
@@ -335,8 +338,8 @@ declare -g -r LABEL_CONFIG_POSTFIX_POSTSCREEN='Postscreen access IPs'
 declare -g -r CONFIG_POSTFIX_POSTSCREEN="$DIR_MAPS/check_postscreen_access_ips"
 
 # Postscreen whitelist domains
-declare -g -r LABEL_CONFIG_POSTFIX_PSWLUPDATE='Postscreen whitelist domains'
-declare -g -r CONFIG_POSTFIX_PSWLUPDATE="$DIR_MAPS/domains"
+declare -g -r LABEL_CONFIG_POSTFIX_POSTSCREEN_WHITELIST='Postscreen whitelist domains'
+declare -g -r CONFIG_POSTFIX_POSTSCREEN_WHITELIST="$DIR_MAPS/domains"
 
 # Client access IPs
 declare -g -r LABEL_CONFIG_POSTFIX_CLIENT='Client access IPs'
@@ -401,7 +404,7 @@ declare -g -a POSTFIX_FEATURE
 POSTFIX_FEATURE=()
 POSTFIX_FEATURE+=('tls')
 POSTFIX_FEATURE+=('dane')
-POSTFIX_FEATURE+=('verbosetls')
+POSTFIX_FEATURE+=('verbose_tls')
 POSTFIX_FEATURE+=('esmtp')
 POSTFIX_FEATURE+=('header')
 POSTFIX_FEATURE+=('mime')
@@ -448,11 +451,11 @@ POSTFIX_DANE+=('smtp_tls_security_level=dane')
 POSTFIX_DANE+=('smtp_dns_support_level=dnssec')
 
 # Verbose TLS
-declare -g -r POSTFIX_VERBOSETLS_LABEL='Verbose TLS'
+declare -g -r POSTFIX_VERBOSE_TLS_LABEL='Verbose TLS'
 
-POSTFIX_VERBOSETLS+=('smtpd_tls_loglevel=1')
-POSTFIX_VERBOSETLS+=('smtp_tls_note_starttls_offer=yes')
-POSTFIX_VERBOSETLS+=('smtp_tls_loglevel=1')
+POSTFIX_VERBOSE_TLS+=('smtpd_tls_loglevel=1')
+POSTFIX_VERBOSE_TLS+=('smtp_tls_note_starttls_offer=yes')
+POSTFIX_VERBOSE_TLS+=('smtp_tls_loglevel=1')
 
 # ESMTP filter
 declare -g -r POSTFIX_ESMTP_LABEL='ESMTP filter'
@@ -525,22 +528,22 @@ POSTFIX_POSTSCREEN+=('postscreen_greet_wait=${stress?4}${stress:15}s')
 declare -g -a POSTSCREEN_FEATURE
 
 POSTSCREEN_FEATURE=()
-POSTSCREEN_FEATURE+=('psdeep')
-POSTSCREEN_FEATURE+=('pswlupdate')
+POSTSCREEN_FEATURE+=('postscreen_deep')
+POSTSCREEN_FEATURE+=('postscreen_whitelist')
 
-declare -g -r POSTSCREEN_PSDEEP_LABEL='Postscreen Deep'
+declare -g -r POSTSCREEN_POSTSCREEN_DEEP_LABEL='Postscreen Deep'
 
-declare -g -a POSTSCREEN_PSDEEP
+declare -g -a POSTSCREEN_POSTSCREEN_DEEP
 
-POSTSCREEN_PSDEEP=()
-POSTSCREEN_PSDEEP+=('postscreen_bare_newline_enable=yes')
-POSTSCREEN_PSDEEP+=('postscreen_bare_newline_action=enforce')
-POSTSCREEN_PSDEEP+=('postscreen_non_smtp_command_action=enforce')
-POSTSCREEN_PSDEEP+=('postscreen_non_smtp_command_enable=yes')
-POSTSCREEN_PSDEEP+=('postscreen_pipelining_enable=yes')
-POSTSCREEN_PSDEEP+=('postscreen_dnsbl_whitelist_threshold=-1')
+POSTSCREEN_POSTSCREEN_DEEP=()
+POSTSCREEN_POSTSCREEN_DEEP+=('postscreen_bare_newline_enable=yes')
+POSTSCREEN_POSTSCREEN_DEEP+=('postscreen_bare_newline_action=enforce')
+POSTSCREEN_POSTSCREEN_DEEP+=('postscreen_non_smtp_command_action=enforce')
+POSTSCREEN_POSTSCREEN_DEEP+=('postscreen_non_smtp_command_enable=yes')
+POSTSCREEN_POSTSCREEN_DEEP+=('postscreen_pipelining_enable=yes')
+POSTSCREEN_POSTSCREEN_DEEP+=('postscreen_dnsbl_whitelist_threshold=-1')
 
-declare -g -r POSTSCREEN_PSWLUPDATE_LABEL='Automatic whitelist update'
+declare -g -r POSTSCREEN_POSTSCREEN_WHITELIST_LABEL='Automatic whitelist update'
 
 declare -g -r POSTSCREEN_WHITELIST_SPF="$DIR_MAPS/postscreen_spf_whitelist.cidr"
 
@@ -628,22 +631,27 @@ declare -g -a SPAMASSASSIN_CONFIG
 
 SPAMASSASSIN_CONFIG=()
 SPAMASSASSIN_CONFIG+=('local')
-SPAMASSASSIN_CONFIG+=('whitelist')
+SPAMASSASSIN_CONFIG+=('whitelist_from')
+SPAMASSASSIN_CONFIG+=('whitelist_ip')
 
 # Main
 declare -g -r LABEL_CONFIG_SPAMASSASSIN_LOCAL='Main'
 declare -g -r CONFIG_SPAMASSASSIN_LOCAL="$DIR_CONFIG_SPAMASSASSIN/local.cf"
 
-# Whitelist
-declare -g -r LABEL_CONFIG_SPAMASSASSIN_WHITELIST='Whitelist'
-declare -g -r CONFIG_SPAMASSASSIN_WHITELIST="$DIR_CONFIG_SPAMASSASSIN/whitelist_from.cf"
+# Whitelist sender from
+declare -g -r LABEL_CONFIG_SPAMASSASSIN_WHITELIST_FROM='Whitelist sender from'
+declare -g -r CONFIG_SPAMASSASSIN_WHITELIST_FROM="$DIR_CONFIG_SPAMASSASSIN/whitelist_sender_from.cf"
+
+# Whitelist sender IP
+declare -g -r LABEL_CONFIG_SPAMASSASSIN_WHITELIST_IP='Whitelist sender ip'
+declare -g -r CONFIG_SPAMASSASSIN_WHITELIST_IP="$DIR_CONFIG_SPAMASSASSIN/whitelist_sender_ip.cf"
 
 ###################################################################################################
 # Spamassassin features
 declare -g -a SPAMASSASSIN_FEATURE
 
 SPAMASSASSIN_FEATURE=()
-SPAMASSASSIN_FEATURE+=('wlupdate')
+SPAMASSASSIN_FEATURE+=('spamassassin_whitelist')
 
 for FEATURE in "${SPAMASSASSIN_FEATURE[@]}"; do
     declare -g -a SPAMASSASSIN_${FEATURE^^}
@@ -651,8 +659,8 @@ for FEATURE in "${SPAMASSASSIN_FEATURE[@]}"; do
 done
 
 # Automatic whitelist update
-declare -g -r SPAMASSASSIN_WLUPDATE_LABEL='Automatic whitelist update'
-declare -g -r SPAMASSASSIN_WLUPDATE_CUSTOM=1
+declare -g -r SPAMASSASSIN_SPAMASSASSIN_WHITELIST_LABEL='Automatic whitelist update'
+declare -g -r SPAMASSASSIN_SPAMASSASSIN_WHITELIST_CUSTOM=1
 
 ###################################################################################################
 # Rspamd configs
@@ -660,7 +668,7 @@ declare -g -r CONFIG_RSPAMD_LOCAL="$DIR_CONFIG_RSPAMD/rspamd.conf.local"
 declare -g -r CONFIG_RSPAMD_REDIS="$DIR_CONFIG_RSPAMD/local.d/redis.conf"
 declare -g -r CONFIG_RSPAMD_GREYLIST="$DIR_CONFIG_RSPAMD/local.d/greylist.conf"
 declare -g -r CONFIG_RSPAMD_OPTIONS="$DIR_CONFIG_RSPAMD/local.d/options.inc"
-declare -g -r CONFIG_RSPAMD_SARULES="$DIR_CONFIG_RSPAMD/local.d/spamassassin.conf"
+declare -g -r CONFIG_RSPAMD_SPAMASSASSIN_RULES="$DIR_CONFIG_RSPAMD/local.d/spamassassin.conf"
 declare -g -r CONFIG_RSPAMD_REPUTATION="$DIR_CONFIG_RSPAMD/local.d/url_reputation.conf"
 declare -g -r CONFIG_RSPAMD_PHISHING="$DIR_CONFIG_RSPAMD/local.d/phishing.conf"
 declare -g -r CONFIG_RSPAMD_ACTIONS="$DIR_CONFIG_RSPAMD/override.d/actions.conf"
@@ -718,12 +726,13 @@ declare -g -a RSPAMD_FEATURE
 RSPAMD_FEATURE=()
 RSPAMD_FEATURE+=('greylist')
 RSPAMD_FEATURE+=('reject')
-RSPAMD_FEATURE+=('bwlist')
+RSPAMD_FEATURE+=('blackwhite_list')
+RSPAMD_FEATURE+=('rspamd_whitelist')
 RSPAMD_FEATURE+=('bayes')
 RSPAMD_FEATURE+=('headers')
 RSPAMD_FEATURE+=('spamd')
-RSPAMD_FEATURE+=('sarules')
-RSPAMD_FEATURE+=('rulesupdate')
+RSPAMD_FEATURE+=('spamassassin_rules')
+RSPAMD_FEATURE+=('rules_update')
 RSPAMD_FEATURE+=('reputation')
 RSPAMD_FEATURE+=('phishing')
 RSPAMD_FEATURE+=('pyzor')
@@ -750,8 +759,12 @@ declare -g -r RSPAMD_REJECT_LABEL='Rejecting disabled'
 RSPAMD_REJECT+=('reject = null;' "$CONFIG_RSPAMD_ACTIONS")
 
 # Black-/whitelists
-declare -g -r RSPAMD_BWLIST_LABEL='Black-/whitelists'
-declare -g -r RSPAMD_BWLIST_CUSTOM=1
+declare -g -r RSPAMD_BLACKWHITE_LIST_LABEL='Black-/whitelists'
+declare -g -r RSPAMD_BLACKWHITE_LIST_CUSTOM=1
+
+# Automatic whitelist update
+declare -g -r RSPAMD_RSPAMD_WHITELIST_LABEL='Automatic whitelist update'
+declare -g -r RSPAMD_RSPAMD_WHITELIST_CUSTOM=1
 
 # Bayes-learning
 declare -g -r RSPAMD_BAYES_LABEL='Bayes-learning'
@@ -771,15 +784,15 @@ declare -g -r RSPAMD_SPAMD_CUSTOM=1
 declare -g -r CONFIG_SPAMD='spamassassin {'$'\n\t''symbol = "SPAMD"'$'\n\t''type = "spamassassin"'$'\n\t''max_size = 1000000;'$'\n\t''servers = "127.0.0.1:783";'$'\n\t''one_shot = true;'$'\n\t''score = 1.0;'$'\n''}'
 
 # Spamassassin rules
-declare -g -r RSPAMD_SARULES_LABEL='Heinlein SA rules'
-declare -g -r RSPAMD_SARULES_CUSTOM=1
+declare -g -r RSPAMD_SPAMASSASSIN_RULES_LABEL='Heinlein SA rules'
+declare -g -r RSPAMD_SPAMASSASSIN_RULES_CUSTOM=1
 
-RSPAMD_SARULES+=("ruleset = \"$FILE_RULES\";" "$CONFIG_RSPAMD_SARULES")
-RSPAMD_SARULES+=('alpha = 0.1;' "$CONFIG_RSPAMD_SARULES")
+RSPAMD_SPAMASSASSIN_RULES+=("ruleset = \"$FILE_RULES\";" "$CONFIG_RSPAMD_SPAMASSASSIN_RULES")
+RSPAMD_SPAMASSASSIN_RULES+=('alpha = 0.1;' "$CONFIG_RSPAMD_SPAMASSASSIN_RULES")
 
 # Automatic SA rules update
-declare -g -r RSPAMD_RULESUPDATE_LABEL='Automatic SA rules update'
-declare -g -r RSPAMD_RULESUPDATE_CUSTOM=1
+declare -g -r RSPAMD_RULES_UPDATE_LABEL='Automatic SA rules update'
+declare -g -r RSPAMD_RULES_UPDATE_CUSTOM=1
 
 # URL reputation
 declare -g -r RSPAMD_REPUTATION_LABEL='URL reputation'
@@ -866,7 +879,8 @@ EMAIL_ADDRESSES=()
 EMAIL_ADDRESSES+=('update')
 EMAIL_ADDRESSES+=('logwatch')
 EMAIL_ADDRESSES+=('reboot')
-EMAIL_ADDRESSES+=('wlupdate')
+EMAIL_ADDRESSES+=('spamassassin_whitelist')
+EMAIL_ADDRESSES+=('rspamd_whitelist')
 
 # Automatic update
 declare -g -r LABEL_EMAIL_UPDATE='Automatic update'
@@ -879,9 +893,13 @@ declare -g -r EMAIL_LOGWATCH_CHECK=1
 declare -g -r LABEL_EMAIL_REBOOT='Reboot alert'
 declare -g -r EMAIL_REBOOT_CHECK=1
 
-# Automatic SA whitelist update
-declare -g -r LABEL_EMAIL_WLUPDATE='Automatic SA whitelist update'
-declare -g -r EMAIL_WLUPDATE_CHECK=1
+# Automatic Spamassassin whitelist update
+declare -g -r LABEL_EMAIL_SPAMASSASSIN_WHITELIST='Automatic Spamassassin whitelist update'
+declare -g -r EMAIL_SPAMASSASSIN_WHITELIST_CHECK=1
+
+# Automatic Rspamd whitelist update
+declare -g -r LABEL_EMAIL_RSPAMD_WHITELIST='Automatic Rspamd whitelist update'
+declare -g -r EMAIL_RSPAMD_WHITELIST_CHECK=1
 
 ###################################################################################################
 # Logs
@@ -1306,6 +1324,74 @@ disable_service() {
     fi
 }
 
+# check list server status
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 for disabled
+list_server_status() {
+    grep -q '^Host listserver$' "$CONFIG_SSH"
+}
+
+# enable list server
+# parameters:
+# none
+# return values:
+# error code - 0 for changes made, 1 for no changes made
+list_server_enable() {
+    declare -r DIR_SSH="$HOME/.ssh"
+    declare IP_ADDRESS RET_CODE SSH_PORT SSH_KEY
+
+    if [ -d "$DIR_SSH" ] && ! [ -z "$(ls "$DIR_SSH"/*)" ]; then
+        exec 3>&1
+        IP_ADDRESS="$(get_input 'List server IP address' 'Enter list server IP address')"
+        RET_CODE="$?"
+        exec 3>&-
+
+        if [ "$RET_CODE" = 0 ]; then
+            exec 3>&1
+            SSH_PORT="$(get_input 'List server SSH port' 'Enter list server SSH port' '22')"
+            RET_CODE="$?"
+            exec 3>&-
+
+            if [ "$RET_CODE" = 0 ]; then
+                exec 3>&1
+                SSH_KEY="$(get_file 'Select SSH key' "$DIR_SSH")"
+                RET_CODE="$?"
+                exec 3>&-
+
+                if [ "$RET_CODE" = 0 ]; then
+                    show_wait
+
+                    if ! [ -z "$(ssh -o 'StrictHostKeyChecking=no' -i "$SSH_KEY" -p "$SSH_PORT" "listserver@$IP_ADDRESS" address 2>/dev/null | tr -d '\r')" ]; then
+                        echo $'\n''Host listserver'$'\n\t'"HostName $IP_ADDRESS"$'\n\t''User listserver'$'\n\t'"Port $SSH_PORT"$'\n\t'"IdentityFile $SSH_KEY"$'\n' >> "$CONFIG_SSH"
+
+                        ssh-keygen -R "$IP_ADDRESS" &>/dev/null
+                        ssh-keyscan -H "$IP_ADDRESS" >> ~/.ssh/known_hosts 2>/dev/null
+
+                        return 0
+                    else
+                        show_info 'Error' 'Error getting lists from server.'
+                    fi
+                fi
+            fi
+        fi
+    else
+        show_info 'Error' 'No SSH keys for connection to list server available.'
+    fi
+
+    return 1
+}
+
+# disable list server
+# parameters:
+# none
+# return values:
+# none
+list_server_disable() {
+    sed -i '/^Host listserver/,/^$/d' "$CONFIG_SSH"
+}
+
 # check whether Postfix is installed
 # parameters:
 # none
@@ -1666,10 +1752,10 @@ postscreen_status() {
 # none
 # return values:
 # stdout - Postscreen Deep status
-psdeep_status() {
+postscreen_deep_status() {
     declare POSTFIX_SETTING SETTING_KEY
 
-    for POSTFIX_SETTING in "${POSTSCREEN_PSDEEP[@]}"; do
+    for POSTFIX_SETTING in "${POSTSCREEN_POSTSCREEN_DEEP[@]}"; do
         SETTING_KEY="$(echo "$POSTFIX_SETTING" | awk -F= '{print $1}')"
         if [ "$(postconf "$SETTING_KEY" 2>/dev/null | sed -E "s/^$SETTING_KEY = ?//")" != "$(echo "$POSTFIX_SETTING" | sed "s/^$SETTING_KEY=//")" ]; then
             echo 'off'
@@ -1685,10 +1771,10 @@ psdeep_status() {
 # none
 # return values:
 # none
-psdeep_enable() {
+postscreen_deep_enable() {
     declare POSTFIX_SETTING
 
-    for POSTFIX_SETTING in "${POSTSCREEN_PSDEEP[@]}"; do
+    for POSTFIX_SETTING in "${POSTSCREEN_POSTSCREEN_DEEP[@]}"; do
         postconf "$POSTFIX_SETTING" 2>/dev/null
     done
 }
@@ -1698,10 +1784,10 @@ psdeep_enable() {
 # none
 # return values:
 # none
-psdeep_disable() {
+postscreen_deep_disable() {
     declare POSTFIX_SETTING SETTING_KEY
 
-    for POSTFIX_SETTING in "${POSTSCREEN_PSDEEP[@]}"; do
+    for POSTFIX_SETTING in "${POSTSCREEN_POSTSCREEN_DEEP[@]}"; do
         SETTING_KEY="$(echo "$POSTFIX_SETTING" | awk -F= '{print $1}')"
         postconf "$SETTING_KEY=$(postconf -d "$SETTING_KEY" 2>/dev/null | sed -E "s/^$SETTING_KEY = ?//")" 2>/dev/null
     done
@@ -1712,9 +1798,9 @@ psdeep_disable() {
 # none
 # return values:
 # stdout - Postscreen whitelist update status
-pswlupdate_status() {
+postscreen_whitelist_status() {
     if ! postconf 'postscreen_access_list' 2>/dev/null | sed -E 's/^postscreen_access_list = ?//' | grep -q -E "^permit_mynetworks cidr:$CONFIG_POSTFIX_POSTSCREEN cidr:$POSTSCREEN_WHITELIST_SPF$" \
-        || ! [ -f "$SCRIPT_PSWLUPDATE" ] || ! check_crontab "$CRONTAB_PSWLUPDATE"; then
+        || ! [ -f "$SCRIPT_POSTSCREEN_WHITELIST" ] || ! check_crontab "$CRONTAB_POSTSCREEN_WHITELIST"; then
         echo 'off'
         return
     fi
@@ -1727,7 +1813,7 @@ pswlupdate_status() {
 # none
 # return values:
 # none
-pswlupdate_enable() {
+postscreen_whitelist_enable() {
     declare -r PACKED_SCRIPT='
     H4sIAAAAAAAAA81Ze3PayhX/P5/iWGYiqAMC4nZaO3LCBZww18YU20nuxAkj0AKqQVJXwjg39v3s
     PfuQtHoAdjrtXGWSsI/z2/PePbv7e8bYcY2xFcxf7L/YhxkJA39aC+bwsVF7XavzzvckhN4AqOXO
@@ -1773,12 +1859,12 @@ pswlupdate_enable() {
     CyxYnNmKWuztHSzXBsSwQgQUzK58G1vQpjj6L28cb8GPL2INv/gPJok/pqshAAA=
     '
 
-    mkdir -p "$(dirname "$SCRIPT_PSWLUPDATE")"
-    printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$SCRIPT_PSWLUPDATE"
-    chmod 700 "$SCRIPT_PSWLUPDATE"
-    "$SCRIPT_PSWLUPDATE"
+    mkdir -p "$(dirname "$SCRIPT_POSTSCREEN_WHITELIST")"
+    printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$SCRIPT_POSTSCREEN_WHITELIST"
+    chmod 700 "$SCRIPT_POSTSCREEN_WHITELIST"
+    "$SCRIPT_POSTSCREEN_WHITELIST"
 
-    add_crontab "$CRONTAB_PSWLUPDATE"
+    add_crontab "$CRONTAB_POSTSCREEN_WHITELIST"
 
     postconf "postscreen_access_list=permit_mynetworks cidr:$CONFIG_POSTFIX_POSTSCREEN cidr:$POSTSCREEN_WHITELIST_SPF" 2>/dev/null
 }
@@ -1788,10 +1874,10 @@ pswlupdate_enable() {
 # none
 # return values:
 # none
-pswlupdate_disable() {
-    del_crontab "$CRONTAB_PSWLUPDATE"
+postscreen_whitelist_disable() {
+    del_crontab "$CRONTAB_POSTSCREEN_WHITELIST"
 
-    rm -f "$SCRIPT_PSWLUPDATE"
+    rm -f "$SCRIPT_POSTSCREEN_WHITELIST"
 }
 
 # enable Postscreen
@@ -1834,7 +1920,7 @@ postscreen_enable() {
         fi
     done
 
-    [ "$(pswlupdate_status)" = 'off' ] && postconf "postscreen_access_list=permit_mynetworks cidr:$CONFIG_POSTFIX_POSTSCREEN" 2>/dev/null
+    [ "$(postscreen_whitelist_status)" = 'off' ] && postconf "postscreen_access_list=permit_mynetworks cidr:$CONFIG_POSTFIX_POSTSCREEN" 2>/dev/null
 
     postconf -Me 'smtp/inet=smtp inet n - y - 1 postscreen' 2>/dev/null
     [ "$(postfix_feature_status 'spamassassin')" = 'off' ] && postconf -Me 'smtpd/pass=smtpd pass - - y - - smtpd' 2>/dev/null
@@ -1848,8 +1934,8 @@ postscreen_enable() {
 # return values:
 # none
 postscreen_disable() {
-    [ "$(pswlupdate_status)" = 'on' ] && pswlupdate_disable
-    [ "$(psdeep_status)" = 'on' ] && psdeep_disable
+    [ "$(postscreen_whitelist_status)" = 'on' ] && postscreen_whitelist_disable
+    [ "$(postscreen_deep_status)" = 'on' ] && postscreen_deep_disable
 
     postconf "postscreen_access_list=$(postconf -d 'postscreen_access_list' 2>/dev/null | sed -E 's/^$postscreen_access_list = ?//')" 2>/dev/null
 
@@ -2859,7 +2945,7 @@ spf_sync() {
 # none
 # return values:
 # error code - 0 for enabled, 1 for disabled
-bwlist_status() {
+blackwhite_list_status() {
     if [ -f "$CONFIG_RSPAMD_MULTIMAP" ]                                                                                                                                                                                                                                                                                     \
         && [ "$(sed -n '/^WHITELIST_SENDER_IP {$/,/^}$/p' "$CONFIG_RSPAMD_MULTIMAP")" = 'WHITELIST_SENDER_IP {'$'\n\t''type = "ip";'$'\n\t''prefilter = "true";'$'\n\t'"map = \"$CONFIG_RSPAMD_WHITELIST_IP\";"$'\n\t''description = "Whitelisted sender IP";'$'\n\t''action = "accept";'$'\n''}' ]                         \
         && [ "$(sed -n '/^WHITELIST_SENDER_DOMAIN {$/,/^}$/p' "$CONFIG_RSPAMD_MULTIMAP")" = 'WHITELIST_SENDER_DOMAIN {'$'\n\t''type = "from";'$'\n\t''filter = "email:domain";'$'\n\t'"map = \"$CONFIG_RSPAMD_WHITELIST_DOMAIN\";"$'\n\t''description = "Whitelisted sender domain";'$'\n\t''score = -10.0;'$'\n''}' ]     \
@@ -2877,7 +2963,7 @@ bwlist_status() {
 # none
 # return values:
 # error code - 0 for enabled, 1 for disabled
-bwlist_enable() {
+blackwhite_list_enable() {
     if ! [ -f "$CONFIG_RSPAMD_MULTIMAP" ] || [ "$(sed -n '/^WHITELIST_SENDER_IP {$/,/^}$/p' "$CONFIG_RSPAMD_MULTIMAP")" != 'WHITELIST_SENDER_IP {'$'\n\t''type = "ip";'$'\n\t''prefilter = "true";'$'\n\t'"map = \"$CONFIG_RSPAMD_WHITELIST_IP\";"$'\n\t''description = "Whitelisted sender IP";'$'\n\t''action = "accept";'$'\n''}' ]; then
         echo $'\n''WHITELIST_SENDER_IP {'$'\n\t''type = "ip";'$'\n\t''prefilter = "true";'$'\n\t'"map = \"$CONFIG_RSPAMD_WHITELIST_IP\";"$'\n\t''description = "Whitelisted sender IP";'$'\n\t''action = "accept";'$'\n''}' >> "$CONFIG_RSPAMD_MULTIMAP"
     fi
@@ -2900,12 +2986,70 @@ bwlist_enable() {
 # none
 # return values:
 # error code - 0 for enabled, 1 for disabled
-bwlist_disable() {
+blackwhite_list_disable() {
     sed -i '/^WHITELIST_SENDER_IP {$/,/^}$/d' "$CONFIG_RSPAMD_MULTIMAP"
     sed -i '/^WHITELIST_SENDER_DOMAIN {$/,/^}$/d' "$CONFIG_RSPAMD_MULTIMAP"
     sed -i '/^WHITELIST_SENDER_FROM {$/,/^}$/d' "$CONFIG_RSPAMD_MULTIMAP"
     sed -i '/^WHITELIST_RECIPIENT_TO {$/,/^}$/d' "$CONFIG_RSPAMD_MULTIMAP"
     sed -i '/^BLACKLIST_COUNTRY {$/,/^}$/d' "$CONFIG_RSPAMD_MULTIMAP"
+}
+
+# check Rspamd whitelist update status
+# parameters:
+# none
+# return values:
+# error code - 0 for enabled, 1 for disabled
+rspamd_whitelist_status() {
+    list_server_status && [ -f "$SCRIPT_RSPAMD_WHITELIST" ] && check_crontab "$CRONTAB_RSPAMD_WHITELIST"
+}
+
+# enable Rspamd whitelist update
+# parameters:
+# none
+# return values:
+# error code - 0 for changes made, 1 for no changes made
+rspamd_whitelist_enable() {
+    declare -r PACKED_SCRIPT='
+    H4sIAAAAAAAAA62UbW/aMBDH3+dTXAOaiboQirQ3nehAQEek8iBCV00tRYYcxGriRLah7ca++5y0
+    QKB024tFASU+/+9+9+AUTpwp486UysAwCiBkQiN/8hgwhSGTqiwD+HZWrpQrRkGbm3HyLNgiUFCa
+    WVCtVCvQQ9WMOVxzhYJjECGXUxRULfkCvkbTzkfgqGYxt/VPLkPF+KI8i6PMXWOpglicQ5eKGbQY
+    igeJHEpR2X99rh/VWobheZ1Jp++NaiSllChWKIjR7jbcq8mw3XQHbrunjctHrC9lHEUoyj4Sw7jp
+    uKP2leuNJpfDfrdGnBUVTsimzkvizjbxiY7uo5jMRRyRnMwd/IOIJTrUaNjoeYP+cDTpNlKRzsRJ
+    Yqnm7MmJaCIdJSiXSSyU3pz5brRaw7bn1cxiSeq6m8VNliZQ3xcoJdghkNIXZpW2MdcJFYqjsAhU
+    LxwfVw5fhiGsQQmwfSB3guiXhcAE7DbYKyD3pcK6aBHLNDYZHQm4FOF/DmawOdyC/UOHyWdrwhjW
+    6z2LO9CLn0EFyA3QV6uv+9rL9VXz4iyI9f6DjptroI8PYF+adRPIz0QwrqBY/ZXGTz1lf6+Sq8b3
+    GiG7ZU0w1x732pbCffiQV+jQWXrmffEQC8y38heePAlsEIHc3t3pezwmx1BfC7ILfZTFZws4lfoQ
+    KTjlsc+lxBlET1p4SJeyyHSfzUXaMMp0g8+OAOZLtWvZHkeuN+n10osm5TxW4KP+EESMI0RpCIEh
+    fTZ3W5+YgrPsFUOJ+y5IW4hYwAJVetJhO3VpzTJnttRFu058qhBuNtYxvCuzPZCRSmp5/PPqJxNs
+    oVMqBfo0chqhVd896zG2zCODlZHOmbGl1qU52czM/ldlO9GHg35SS6POqHorsd6r6oGLi7fSDdkf
+    qLIDtceUrhzH0Za/wKTai0PNhkLfvwGmynGpUwYAAA==
+    '
+
+    if list_server_status || list_server_enable; then
+        mkdir -p "$(dirname "$SCRIPT_RSPAMD_WHITELIST")"
+        printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$SCRIPT_RSPAMD_WHITELIST"
+        chmod 700 "$SCRIPT_RSPAMD_WHITELIST"
+        "$SCRIPT_RSPAMD_WHITELIST"
+
+        add_crontab "$CRONTAB_RSPAMD_WHITELIST"
+
+        return 0
+    fi
+
+    return 1
+}
+
+# disable Rspamd whitelist update
+# parameters:
+# none
+# return values:
+# none
+rspamd_whitelist_disable() {
+    del_crontab "$CRONTAB_RSPAMD_WHITELIST"
+
+    rm -f "$SCRIPT_RSPAMD_WHITELIST"
+
+    spamassassin_whitelist_status || list_server_disable
 }
 
 # check Spamassassin integration status
@@ -2946,7 +3090,7 @@ spamd_disable() {
 # none
 # return values:
 # error code - 0 for enabled, 1 for disabled
-sarules_status() {
+spamassassin_rules_status() {
     [ -f "$FILE_RULES" ] && return 0 || return 1
 }
 
@@ -2955,7 +3099,7 @@ sarules_status() {
 # none
 # return values:
 # error code - 0 for changes made, 1 for no changes made
-sarules_enable() {
+spamassassin_rules_enable() {
     declare -r DIR_RULES='/tmp/TMPrules'
     declare -r VERSION_RULES="$(dig txt 2.4.3.spamassassin.heinlein-support.de +short | tr -d '"')"
     declare FILE_DOWNLOAD 
@@ -2985,7 +3129,7 @@ sarules_enable() {
 # none
 # return values:
 # none
-sarules_disable() {
+spamassassin_rules_disable() {
     rm -f "$FILE_RULES"
 }
 
@@ -2994,7 +3138,7 @@ sarules_disable() {
 # none
 # return values:
 # error code - 0 for enabled, 1 for disabled
-rulesupdate_status() {
+rules_update_status() {
     [ -f "$CRON_RULES" ] && return 0 || return 1
 }
 
@@ -3003,7 +3147,7 @@ rulesupdate_status() {
 # none
 # return values:
 # error code - 0 for changes made, 1 for no changes made
-rulesupdate_enable() {
+rules_update_enable() {
     declare -r PACKED_SCRIPT='
     H4sIAOxMtFwAA41UbXOiSBD+zq/oNdmYnCcgvu/VphYRFUVN8N2rqxTC8BJhGGEQtfbHH2IuFytb
     dUcxBTM9/fTTz/T0zRdu42Juo0cOw9xATEydopcw9lDERg7MS6zA8sxNapICcgxd26FwbzyAwJea
@@ -3034,7 +3178,7 @@ rulesupdate_enable() {
 # none
 # return values:
 # none
-rulesupdate_disable() {
+rules_update_disable() {
     rm -f "$CRON_RULES"
 }
 
@@ -3731,95 +3875,64 @@ rspamd_info() {
     show_info 'Rspamd info & stats' "$INFO"
 }
 
-# check SA whitelist update status
+# check Spamassassin whitelist update status
 # parameters:
 # none
 # return values:
 # error code - 0 for enabled, 1 for disabled
-wlupdate_status() {
-    [ -f "$SCRIPT_WLUPDATE" ] && grep -q '^Host addresslist$' "$CONFIG_SSH" && check_crontab "$CRONTAB_WLUPDATE"
+spamassassin_whitelist_status() {
+    list_server_status && [ -f "$SCRIPT_SPAMASSASSIN_WHITELIST" ] && check_crontab "$CRONTAB_SPAMASSASSIN_WHITELIST"
 }
 
-# enable SA whitelist update
+# enable Spamassassin whitelist update
 # parameters:
 # none
 # return values:
 # error code - 0 for changes made, 1 for no changes made
-wlupdate_enable() {
-    declare -r DIR_SSH="$HOME/.ssh"
+spamassassin_whitelist_enable() {
     declare -r PACKED_SCRIPT='
-    H4sIAAAAAAAAA3WUbW/aMBDH3+dTXANqiLokBWlvOtGBIBtIlFZAV00tjUxiiNXYiWzTh419911S
-    HgKlUUAOzv/u5//dUTnxZkx4M6Jiw6jAMouIpsFLzDRNmNKuiuFX3a2750YFtztp9ibZItZQC21o
-    nDfOYUh1JxVwKzSVgsacCjWjkuilWMBPPut9AUF1mAoHP2qZaCYWbpjyIlx7qeNUXsAVkSF0GZVP
-    igqocTdar1tHtbZhjMe9oHc9njQtEkWSKpXDWoZ/1e4PgpHf6d/0/SHuLl9oa6lSzql0I2oZxo/+
-    wA/uev2JP+jncg8TeCojnCiFN1qxPXswlyl3wzmqJqP2cHxzPZoEV+2btShLlZ6zV4+TTHlaEqGy
-    VCKDkQcO2t3uyB+Pm2a1ptBDs7ohNsE6S6D2ndm1baZVRqQWVNoWNC69iD57YpkksAItwYnAepAW
-    PiwkzcDxwXkG67FWWVVtyzYNg83hHpw/mKKc2ITpN9AxFQbg1b1GY4YlYxCLhnGKogPLzBWQlydw
-    fpgtJP2bSSY0VBv/8lR5pOJrLRm0fzcta/czYswx4p5ZyAGnp2UFpi5OYj5WD7HA/Ch/5ymTwAYR
-    rPuHB7ynU+sY6tqVXeqjLBFbwJnCNtRwJtJIKEVD4K8oPKTLWVT+niNkXhvCEnDqRwDLVu2qs8dR
-    qk1+vdeiQ4RINUQUR4kzQYHnKSRNyJu5e/WVaagXjzRRdD+E5UuZSlhQnc8KbBss96wI5ig07bYY
-    crjb7E7hU5kzBsV11izjXzS+muBIPFItxhkQhFO7tVtjx9rmkcYqSOfM2FIfzsm6Ife7GC2nOAHK
-    ezwYTPCK7l97fLJpvv35ziu+WuHeYdiTZo4fEv1RYn9WnoMQlx+lW8F2od6UpjzURRlTEkH5rwZO
-    d8O+cQfv/zVQIbuTBQAA
+    H4sIAAAAAAAAA61V227aQBB991dMDMpipcaA1JdUTkFAiqVwEZBGVULQYi/YCl5bu0tIWvrvHZub
+    IUTJQy1jrb17Zs6ZG7kzaxJwa0Klr2k5kHS89APF5oFURenDz3KxUixpOdyqR/GrCGa+goJrQKVU
+    KUGHqXrE4ZYrJjjzQ8blhAmqFnwGP8JJ6wtwptyIm/iTi7kK+KzoRmFqrrZQfiQuoU2FC42AiSfJ
+    OBTCordZV09iDU0bDFrjVncwtEnCUjLxzATRmu2aczPuN+tOz2l2cHOxZNWFjMKQiaLHiKbdtZxh
+    88YZDMfX/W7bJhbat2RMQyol3hiFnfQx+veYGE9FFBbdKclgnd6nkEGc4rRhv9YZ9Lr94bhd2yLj
+    SKpp8GKFNJaWEpTLOBIKD6cOao1GvzkY2Hq+IDEDen6rVwfqeYJJCeYcSOF7YBR2blcxFYozYRCo
+    XFkee7b4Yj6HFSgBpgfkQRB8mQkWg9kE8xnIYyG3yhvE0LWtrBMOF2L+n51pwRTuwfyNbrJqdRjB
+    anWw4/Tw4zdQPuMa4NXoYoY7mQwjX+b6EZ4/yr2+Arp8AvNar+pA/sQi4Arylb+J/8RS+thAbmq/
+    bEL2n5HBFC0epC0hd36eRaDrVJ7+mD+mBfpb+JpPlglsKQK5f3jAezQip6huArJ3fZKLF8zgQmI7
+    KbjgkcelZC6ELwg8Zpdwkck5k4skYTTABJdPEMyGap+yAx6Z3CTXOhd1ynmkwGM4EsKAMwgTF4LN
+    6au+P/oSKCinr2wu2aEJ0hQiEjBjKul52FVdErPUmCkxaLexRxWDu+3uCN6FmQOQoYrtLP3Lylcd
+    TIGSCj52I6chM6r7NZaxoZ8orJTpNNB2rNFYt9awS1r6dty/m/I8LHRMAMMmkdZjZmokgwastEE2
+    ET/bluLh2No1yrHZMzsR41L1FmK8l6wjE1dvoTvAbrFRXN6GYi98PUKylp3egVwlFlIxb4yDfRnh
+    jP9QcDoCDuQmX04rxZ0PdCbYq2PMJwUmBNYbOtg2lNddKF9RT+iqtMAj6kH2PwHO97NRQzv/ANOZ
+    om1qBwAA
     '
-    declare IP_ADDRESS RET_CODE SSH_PORT SSH_KEY
 
-    if [ -d "$DIR_SSH" ] && ! [ -z "$(ls "$DIR_SSH"/*)" ]; then
-        exec 3>&1
-        IP_ADDRESS="$(get_input 'Whitelist server IP address' 'Enter whitelist server IP address')"
-        RET_CODE="$?"
-        exec 3>&-
+    if list_server_status || list_server_enable; then
+        mkdir -p "$(dirname "$SCRIPT_SPAMASSASSIN_WHITELIST")"
+        printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$SCRIPT_SPAMASSASSIN_WHITELIST"
+        chmod 700 "$SCRIPT_SPAMASSASSIN_WHITELIST"
+        "$SCRIPT_SPAMASSASSIN_WHITELIST"
 
-        if [ "$RET_CODE" = 0 ]; then
-            exec 3>&1
-            SSH_PORT="$(get_input 'Whitelist server SSH port' 'Enter whitelist server SSH port' '22')"
-            RET_CODE="$?"
-            exec 3>&-
+        add_crontab "$CRONTAB_SPAMASSASSIN_WHITELIST"
 
-            if [ "$RET_CODE" = 0 ]; then
-                exec 3>&1
-                SSH_KEY="$(get_file 'Select SSH key' "$DIR_SSH")"
-                RET_CODE="$?"
-                exec 3>&-
-
-                if [ "$RET_CODE" = 0 ]; then
-                    show_wait
-
-                    if ! [ -z "$(ssh -o 'StrictHostKeyChecking=accept-new' -i "$SSH_KEY" -p "$SSH_PORT" "addresslist@$IP_ADDRESS" 2>/dev/null | tr -d '\r')" ]; then
-                        echo $'\n''Host addresslist'$'\n\t'"HostName $IP_ADDRESS"$'\n\t''User addresslist'$'\n\t'"Port $SSH_PORT"$'\n\t'"IdentityFile $SSH_KEY"$'\n' >> "$CONFIG_SSH"
-
-                        mkdir -p "$(dirname "$SCRIPT_WLUPDATE")"
-                        printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$SCRIPT_WLUPDATE"
-                        chmod 700 "$SCRIPT_WLUPDATE"
-                        "$SCRIPT_WLUPDATE"
-
-                        add_crontab "$CRONTAB_WLUPDATE"
-
-                        return 0
-                    else
-                        show_info 'Error' 'Error getting address lists from server.'
-                    fi
-                fi
-            fi
-        fi
-    else
-        show_info 'Error' 'No SSH keys for connection to whitelist server available.'
+        return 0
     fi
 
     return 1
 }
 
-# disable SA whitelist update
+# disable Spamassassin whitelist update
 # parameters:
 # none
 # return values:
 # none
-wlupdate_disable() {
-    del_crontab "$CRONTAB_WLUPDATE"
+spamassassin_whitelist_disable() {
+    del_crontab "$CRONTAB_SPAMASSASSIN_WHITELIST"
 
-    rm -f "$SCRIPT_WLUPDATE"
+    rm -f "$SCRIPT_SPAMASSASSIN_WHITELIST"
 
-    sed -i '/^Host addresslist/,/^$/d' "$CONFIG_SSH"
+    rspamd_whitelist_status || list_server_disable
 }
 
 # checks status of given Spamassassin feature
@@ -4351,22 +4464,40 @@ set_email_reboot() {
     sed -E -i "s/ \S+$/ $1/" "$SCRIPT_REBOOT"
 }
 
-# get SA whitelist update email address
+# get Spamassassin whitelist update email address
 # parameters:
 # none
 # return values:
-# stdout - get SA whitelist update email address
-get_email_wlupdate() {
-    grep -E '^EMAIL_RECIPIENT=' "$SCRIPT_WLUPDATE" | awk "match(\$0, /^EMAIL_RECIPIENT='([^']+)'$/, a) {print a[1]}"
+# stdout - Spamassassin whitelist update email address
+get_email_spamassassin_whitelist() {
+    grep -E '^EMAIL_RECIPIENT=' "$SCRIPT_SPAMASSASSIN_WHITELIST" | awk "match(\$0, /^EMAIL_RECIPIENT='([^']+)'$/, a) {print a[1]}"
 }
 
-# set get SA whitelist update email address
+# set Spamassassin whitelist update email address
 # parameters:
-# $1 - get SA whitelist update email address
+# $1 - Spamassassin whitelist update email address
 # return values:
 # none
-set_email_wlupdate() {
-    sed -E -i "s/^EMAIL_RECIPIENT='[^']+'$/EMAIL_RECIPIENT='$1'/" "$SCRIPT_WLUPDATE"
+set_email_spamassassin_whitelist() {
+    sed -E -i "s/^EMAIL_RECIPIENT='[^']+'$/EMAIL_RECIPIENT='$1'/" "$SCRIPT_SPAMASSASSIN_WHITELIST"
+}
+
+# get Rspamd whitelist update email address
+# parameters:
+# none
+# return values:
+# stdout - Rspamd whitelist update email address
+get_email_rspamd_whitelist() {
+    grep -E '^EMAIL_RECIPIENT=' "$SCRIPT_RSPAMD_WHITELIST" | awk "match(\$0, /^EMAIL_RECIPIENT='([^']+)'$/, a) {print a[1]}"
+}
+
+# set Rspamd whitelist update email address
+# parameters:
+# $1 - Rspamd whitelist update email address
+# return values:
+# none
+set_email_rspamd_whitelist() {
+    sed -E -i "s/^EMAIL_RECIPIENT='[^']+'$/EMAIL_RECIPIENT='$1'/" "$SCRIPT_RSPAMD_WHITELIST"
 }
 
 # configure email addresses in dialog menu
@@ -4906,11 +5037,6 @@ install_spamassassin() {
     IqFk1EEZcttTd3a1XEzn7DMfns5u77qOqXf2zW363suVbjD75iLaTLhENaG8K/yQvtRILJBv0MWF
     uQ7kE3LAF0KA2K6KKN2IgJs5fV4txzfZOwSW0ItoBAAA
     '
-    declare -r PACKED_WHITELIST='
-    H4sIAOLW8V4AAz3LSwrDMAwE0L1PIci6iuWCky57kuDGamrqD/hDrl+7hSJmM280QTCxGQ/ny1X2
-    rlQXDzHBPRb38DzUHGyF+Pv2zClA5LqneOkpzY8f3HvbSgqBM1oWouZWKtutL8+U3wVoUUgaJcqZ
-    FJDE780r0G3A+hMNdJVIq8SFkJQWHziaE0qiAAAA
-    '
     {
         if [ "$DISTRO" = 'suse' ]; then
             zypper ar -f https://download.opensuse.org/repositories/devel:/languages:/perl/"$(grep 'PRETTY_NAME' /etc/os-release | awk -F= '{print $2}' | sed 's/"//g' | sed 's/ /_/g')"/devel:languages:perl.repo
@@ -4934,7 +5060,9 @@ install_spamassassin() {
 
         printf '%s' $PACKED_CONFIG | base64 -d | gunzip > "$CONFIG_SPAMASSASSIN_LOCAL"
         printf '%s' $PACKED_DEFAULT | base64 -d | gunzip > /etc/default/spamassassin
-        printf '%s' $PACKED_WHITELIST | base64 -d | gunzip > "$CONFIG_SPAMASSASSIN_WHITELIST"
+
+        echo 'whitelist_from netcon-consulting.com'$'\n''whitelist_from usommer.de' > "$CONFIG_SPAMASSASSIN_WHITELIST_FROM"
+        echo 'trusted_networks 172.16.0.0/12'$'\n''trusted_networks 10.0.0.0/8'$'\n''trusted_networks 192.168.0.0/16'$'\n''trusted_networks 130.180.71.126' > "$CONFIG_SPAMASSASSIN_WHITELIST_IP"
 
         if [ -f /etc/spamassassin/v320.pre ]; then
             sed -i -E 's/^# (loadplugin Mail::SpamAssassin::Plugin::Shortcircuit)/\1/' /etc/spamassassin/v320.pre
@@ -6006,9 +6134,9 @@ write_examples() {
         echo '#85.10.249.206     permit' >> "$CONFIG_POSTFIX_POSTSCREEN"
     fi
 
-    if ! [ -f "$CONFIG_POSTFIX_PSWLUPDATE" ]; then
-        echo 'google.com' >> "$CONFIG_POSTFIX_PSWLUPDATE"
-        echo 'microsoft.com' >> "$CONFIG_POSTFIX_PSWLUPDATE"
+    if ! [ -f "$CONFIG_POSTFIX_POSTSCREEN_WHITELIST" ]; then
+        echo 'google.com' >> "$CONFIG_POSTFIX_POSTSCREEN_WHITELIST"
+        echo 'microsoft.com' >> "$CONFIG_POSTFIX_POSTSCREEN_WHITELIST"
     fi
 
     if ! [ -f "$CONFIG_POSTFIX_CLIENT" ]; then
