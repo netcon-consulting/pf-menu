@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.46.0 for Postfix
+# menu.sh V1.47.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,8 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - Spamassassin whitelist updates also update sender IP whitelist
-# - added Rspamd setting for automatic whitelist updates
+# - bugfixes
 #
 ###################################################################################################
 
@@ -776,7 +775,7 @@ declare -g -r RSPAMD_HEADERS_LABEL='Detailed headers'
 
 RSPAMD_HEADERS+=('extended_spam_headers = true;' "$CONFIG_RSPAMD_HEADERS")
 
-# Spamassassin rules
+# Spamassassin integration
 declare -g -r RSPAMD_SPAMD_LABEL='Spamassassin integration'
 declare -g -r RSPAMD_SPAMD_CHECK=1
 declare -g -r RSPAMD_SPAMD_CUSTOM=1
@@ -2003,7 +2002,8 @@ recipient_status() {
 unverified_status() {
     if [ "$(postconf 'address_verify_transport_maps' 2>/dev/null | sed -E 's/^address_verify_transport_maps = ?//')" = "hash:$CONFIG_POSTFIX_TRANSPORT" ]               \
         && [ -z "$(postconf 'address_verify_map' 2>/dev/null | sed -E 's/^address_verify_map = ?//')" ]                                                                 \
-        && [ "$(postconf 'unverified_recipient_reject_reason' 2>/dev/null | sed -E 's/^unverified_recipient_reject_reason = ?//')" = "User doesn't exist" ]; then
+        && [ "$(postconf 'unverified_recipient_reject_reason' 2>/dev/null | sed -E 's/^unverified_recipient_reject_reason = ?//')" = "User doesn't exist" ]
+        && [ "$(postconf 'unverified_recipient_reject_code' 2>/dev/null | sed -E 's/^unverified_recipient_reject_code = ?//')" = '550' ]; then
         return 0
     else
         return 1
@@ -2019,6 +2019,7 @@ unverified_enable() {
     postconf "address_verify_transport_maps=hash:$CONFIG_POSTFIX_TRANSPORT" 2>/dev/null
     postconf 'address_verify_map=' 2>/dev/null
     postconf "unverified_recipient_reject_reason=User doesn't exist" 2>/dev/null
+    postconf 'unverified_recipient_reject_code=550' 2>/dev/null
 }
 
 # disable unverified recipient restriction
@@ -2030,6 +2031,7 @@ unverified_disable() {
     postconf "address_verify_transport_maps=$(postconf -d 'address_verify_transport_maps')" 2>/dev/null
     postconf "address_verify_map=$(postconf -d 'address_verify_map')" 2>/dev/null
     postconf "unverified_recipient_reject_reason=$(postconf -d 'unverified_recipient_reject_reason')" 2>/dev/null
+    postconf "unverified_recipient_reject_code=$(postconf -d 'unverified_recipient_reject_code')" 2>/dev/null
 }
 
 # enable recipient restrictions
@@ -3361,18 +3363,18 @@ razor_enable() {
     mkdir -p "$RAZOR_DIR/bin/"
 
     PACKED_SCRIPT='
-    H4sIAAtN/F4AA31UTW/cIBC9+1dQesHqxtuqlyqSD22UKlWVKmr2lkYWMeM1iQEXcJJtlf/eAWzv
-    hzblYs8w83jMG+btm+Xg7PJO6iXoR9JvfGv0xyyTqjfWE27XPbcOJhsUl10RXfbAZzpZbyafcdPf
-    vTN6+nfDXW9NDc5ljTWKOFM/gEeoR7BkjFmdXV1Hx4KsWgtcSL2+lM/f9IJce7TVT/g9gPMXXIsO
-    SUQgD6pvZAcTyA+uQKwgGNxuvuJOltUdd47sZ7NjkPlpRnAJaEgbPcxB14zesGolSEmCs7Dh1CLQ
-    7KQGlhcCaiPw5+b05MNtNqfIJmWVhJ5dnJ99p1u0sCJWOqyqW6gfWD7vQ+fgSPSTlR6qUF32l4K1
-    xtJTQgf9oM2TJrVRCuHoS54dXGbEP7hSUhRvtStw8WXjwV3Ff5b0LXfFLq4vV1dbosqtEWBMjR+2
-    rVG+rcWT9O0RhZiQtqRLr3qaE+5Is3/p8cYMTym4q+4CNZbvwIZlwQ2dD+LMnVbUvOvYDZ3b3PI/
-    xp7EKtAFwmpkcpvvSTXBlOT9HolU+Ch5IpNYUNdzhVh08M3JJ5r/R7vXENoDgFm0HZlD7oKIHdXu
-    8aZhqxCD6h0TOXlH6C9Ns1ePuy9ApwbNpxeRXhs7fGzzOxzP6zE2ywIl7ADNRm+YD0hiGhPFZ7se
-    FGg/No0AV1vZe2l0Sc+fe+OAxPoTowkf3z/NZ6iCC1HxEYNRtCyWpYWuL6OBehJvSCedB40Yr6eG
-    MTCnxplwPM+N7FPDBgDsqlT+cCDusuAL6DiRJEJHMyBOMjn7iGFjGVPcwUBJcd5uttJhUhEHX9UY
-    CyEzUWqkxn49FmirusP6BXbYolUV+raq4kipqqBJVY1TJQmU/QNDrD+S2wUAAA==
+    H4sIAAAAAAAAA31UTW/cIBC9+1dQesHqxtuqlyqSD22UKlWVKmr2lkaI2OM1CQYXcJJtlf/eAWzv
+    hzblYs8w83jMG+btm+Xg7PJO6iXoR9JvfGv0xyyTXW+sJ8Kue2EdTDZ0QqoiuuyBzyhZbSafcdPf
+    vTN6+nfDXW9NBc5ljTUdcaZ6AI9Qj2DJGLM6u7qOjgVZtRZELfX6Uj5/0wty7dHufsLvAZy/ELpW
+    SCICeej6RiqYQH6IDuoVBEPYzVfcybJKCefIfjY7BpmfZgRXDQ1po4c5UM3oDavqalKS4CxsOLUI
+    NJXUwPKihsrU+HNzevLhNptTZJOySkLPLs7PvtMtWlgRKx3GqxaqB5bP+6AcHIl+stIDD9VlfylY
+    ayw9JXTQD9o8aVKZrkM4+pJnB5cZ8Q+ulBTFW+0KXHzZeHBX8Z8lfctdsYvry9XVlmjn1ggwpsYP
+    29Yo39biSfr2iEKslrakS9/1NCfCkWb/0uONGZ5SCMfvAjWW78CGZcENygdx5k4rKqEUu6GxzZVB
+    Kza7FX+MPYm1oAsE18jnNt8TbAIryfs9Kqn8UfhEKXGhrhcdYtHBNyefaP4fBV9DaA8AZul2xA65
+    C1LvaHeP9w1bRT10vWN1Tt4R+kvT7NXj7gvQqU3z6V2kN8cOn9z8GsfzeozNskAJ+0Cz0RumBJKY
+    hkXx2a6HDrQfW6cGV1nZe2l0Sc+fe+OAxPoTo4kYpwDNZ6hC1DUXIwajaFksSwuqL6OBqhJviJLO
+    g0aM11PDMJhT42Q4nudG9qltAwD2Vip/OBB3WfAFdJxLEqGjGRAnmZx9xLCxjCnuYKykOG83W+kw
+    qYjjjzfGQshMlBqpsWuPBVpeKaxfYIctynnoW87jYOE8aML5OFuSQNk/dnxBkeEFAAA=
     '
     printf '%s' $PACKED_SCRIPT | base64 -d | gunzip > "$RAZOR_SCRIPT"
     chown "$RAZOR_USER:$RAZOR_USER" "$RAZOR_SCRIPT"
@@ -4207,7 +4209,7 @@ fail2ban_config() {
 # none
 fail2ban_sync() {
     show_wait
-    rsync -avzh -e ssh "$CONFIG_FAIL2BAN" mx:"$CONFIG_FAIL2BAN"
+    rsync -avzh -e ssh "$DIR_CONFIG_FAIL2BAN" mx:"$DIR_CONFIG_FAIL2BAN" &>/dev/null
     ssh mx systemctl restart fail2ban
 }
 
@@ -4889,7 +4891,7 @@ install_postfix() {
     {
         DEBIAN_FRONTEND=noninteractive "$INSTALLER" -y -q install postfix
 
-        postconf 'inet_protocols=all'
+        postconf 'inet_interfaces=all'
         postconf 'inet_protocols=ipv4'
         postconf 'mynetworks=127.0.0.0/8'
 
@@ -5167,11 +5169,7 @@ install_pyzor() {
 # none
 install_razor() {
     {
-        if [ "$DISTRO" = 'redhat' ] || [ "$DISTRO" = 'suse' ]; then
-            cpan -f Razor2:Client:Agent
-        elif [ "$DISTRO" = 'debian' ]; then
-            apt install -y razor
-        fi
+        cpan -f Razor2::Client::Agent
     } 2>&1 | show_output 'Installing Razor'
 }
 
@@ -6227,9 +6225,13 @@ write_examples() {
         echo '##################################' >> "$CONFIG_POSTFIX_ALIAS"
         echo '#webmaster@example.com    admin@example.com' >> "$CONFIG_POSTFIX_ALIAS"
         echo '#@test.com                test@example.com' >> "$CONFIG_POSTFIX_ALIAS"
+        postmap "$CONFIG_POSTFIX_ALIAS" &>/dev/null
     fi
 
-    [ -f "$POSTFIX_ALIAS_ADMIN" ] || echo "admins@$(hostname -d)" > "$POSTFIX_ALIAS_ADMIN"
+    if ! [ -f "$POSTFIX_ALIAS_ADMIN" ]; then
+        echo "admins@$(hostname -d)" > "$POSTFIX_ALIAS_ADMIN"
+        postmap "$POSTFIX_ALIAS_ADMIN" &>/dev/null
+    fi
 }
 
 # install dependency
