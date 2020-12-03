@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.47.0 for Postfix
+# menu.sh V1.48.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - bugfixes
+# - bugfix
 #
 ###################################################################################################
 
@@ -2002,7 +2002,7 @@ recipient_status() {
 unverified_status() {
     if [ "$(postconf 'address_verify_transport_maps' 2>/dev/null | sed -E 's/^address_verify_transport_maps = ?//')" = "hash:$CONFIG_POSTFIX_TRANSPORT" ]               \
         && [ -z "$(postconf 'address_verify_map' 2>/dev/null | sed -E 's/^address_verify_map = ?//')" ]                                                                 \
-        && [ "$(postconf 'unverified_recipient_reject_reason' 2>/dev/null | sed -E 's/^unverified_recipient_reject_reason = ?//')" = "User doesn't exist" ]
+        && [ "$(postconf 'unverified_recipient_reject_reason' 2>/dev/null | sed -E 's/^unverified_recipient_reject_reason = ?//')" = "User doesn't exist" ]             \
         && [ "$(postconf 'unverified_recipient_reject_code' 2>/dev/null | sed -E 's/^unverified_recipient_reject_code = ?//')" = '550' ]; then
         return 0
     else
