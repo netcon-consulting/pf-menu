@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.48.0 for Postfix
+# menu.sh V1.49.0 for Postfix
 #
 # Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - bugfix
+# - bugfixes
 #
 ###################################################################################################
 
@@ -1306,7 +1306,7 @@ enable_service() {
     if [ "$DISTRO" = 'redhat' ] || [ "$DISTRO" = 'suse' ]; then
         chkconfig "$1" on
     elif [ "$DISTRO" = 'debian' ]; then
-        update-rc.d "$2" defaults
+        update-rc.d "$1" defaults
     fi
 }
 
@@ -5380,9 +5380,12 @@ install_acme() {
     declare -r DIR_CERT="/root/.acme.sh/$HOST_NAME"
     declare -r DIR_SSL='/etc/ssl'
     declare -r PACKED_SCRIPT='
-    H4sIADN+6F4AA1NW1E/KzNNPSizO4OLSLwaxMwtKEpNyUosVdD0VPP0CQkMUDBV0CxRKkgsUdHMh
-    lG5KQX5RiYKFgYJuloKjs7NrQAiXflF+fom+XmJybqpecYY+lAaqTS7KzwNSGfm5qQqoijAsdIFa
-    SIR1AL1vT3i5AAAA
+    H4sIAAAAAAAAA42RX0+DMBTF3/sprpUMfSjVNxPDw8JIJJlzAfZkFgLdRVD+2bIHEz+8RXBuOJ19
+    uWnO7/Sc3J6f8SSveBKrjJANiiKWCEzC3UMQRovpvWubUbS7RJG5D808P3JcP7Qpl3XdcisWJVoq
+    48bOQcd8EMxtk2MruFKFSQhXXX7etHFSoALmgbdYrkK4BtZAKxpgZT/YpqllCzdXwJ5h6jjuMiS+
+    G6zmOt64GBUYpnYJWVd6ZHWJcAhd0h/hsyH8H9EkTwFFVgM1+hYU3uFJosZfwVyDg9qhtkKgUpZh
+    wmQCj8BSjX9tbW9LlkBJYX0CesG3X6B0WxQii/NqeOgW2gwrAvp0/f9M7SX9LWPlpP2zz1F7pxy3
+    j5p+uw8FkubkA1U8lAmbAgAA
     '
 
     {
@@ -5393,7 +5396,7 @@ install_acme() {
         /root/.acme.sh/acme.sh --issue --standalone -d "$HOST_NAME"
         iptables -D INPUT -p tcp -m tcp --dport 80 -j ACCEPT
 
-        if [ -f "$DIR_CERT/$HOST_NAME.cer" ]; then
+        if [ -f "$DIR_CERT/$HOST_NAME.cer" ] && [ -f "$DIR_CERT/$HOST_NAME.key" ] && [ -f "$DIR_CERT/fullchain.cer" ]; then
             cp -f "$DIR_CERT/$HOST_NAME.cer" "$DIR_SSL/$HOST_NAME.cer"
             cp -f "$DIR_CERT/$HOST_NAME.key" "$DIR_SSL/$HOST_NAME.key"
             cp -f "$DIR_CERT/fullchain.cer" "$DIR_SSL/fullchain.cer"
