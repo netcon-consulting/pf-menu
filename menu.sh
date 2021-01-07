@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# menu.sh V1.49.0 for Postfix
+# menu.sh V1.50.0 for Postfix
 #
-# Copyright (c) 2019-2020 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
+# Copyright (c) 2019-2021 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
 # Authors:
 # Marc Dierksen (m.dierksen@netcon-consulting.com)
@@ -85,6 +85,8 @@ fi
 if [ "$DISTRO" = 'redhat' ]; then
     ###################################################################################################
     # Redhat specific parameters
+    declare -g -r PACKAGE_CPAN='cpan'
+
     declare -g -r PACKAGE_SPAMASSASSIN='spamassassin GeoIP GeoIP-data perl-App-cpanminus perl-BSD-Resource perl-DBI perl-Encode-Detect perl-Geo-IP perl-LWP-UserAgent-Determined perl-Mail-DKIM perl-Net-CIDR perl-Digest-SHA perl-Net-Patricia spamassassin perl-Mail-SPF redis perl-Archive-Zip perl-Net-LibIDN perl-IO-Socket-INET6 perl-Geo-IP'
 
     declare -g -r PACKAGE_BIND='bind'
@@ -124,7 +126,9 @@ if [ "$DISTRO" = 'redhat' ]; then
 elif [ "$DISTRO" = 'debian' ]; then
     ###################################################################################################
     # Debian specific parameters
-    declare -g -r PACKAGE_SPAMASSASSIN='geoip-bin geoip-database geoip-database-extra cpanminus libbsd-resource-perl libdbi-perl libencode-detect-perl libgeo-ip-perl liblwp-useragent-determined-perl libmail-dkim-perl libnet-cidr-perl libdigest-sha-perl libnet-patricia-perl postfix-pcre sa-compile spamassassin spamc spf-tools-perl redis-server libarchive-zip-perl libio-string-perl libmaxmind-db-reader-perl libmaxmind-db-reader-xs-perl libnet-libidn-perl libio-socket-inet6-perl libgeoip2-perl'
+    declare -g -r PACKAGE_CPAN='perl'
+
+    declare -g -r PACKAGE_SPAMASSASSIN='geoip-bin geoip-database cpanminus libbsd-resource-perl libdbi-perl libencode-detect-perl libgeo-ip-perl liblwp-useragent-determined-perl libmail-dkim-perl libnet-cidr-perl libdigest-sha-perl libnet-patricia-perl postfix-pcre sa-compile spamassassin spamc spf-tools-perl redis-server libarchive-zip-perl libio-string-perl libnet-libidn-perl libio-socket-inet6-perl'
 
     declare -g -r PACKAGE_BIND='bind9'
     declare -g -r SERVICE_BIND='bind9'
@@ -161,6 +165,8 @@ elif [ "$DISTRO" = 'debian' ]; then
 elif [ "$DISTRO" = 'suse' ]; then
     ###################################################################################################
     # SUSE specific parameters
+    declare -g -r PACKAGE_CPAN='cpan'
+
     declare -g -r PACKAGE_SPAMASSASSIN='spamassassin GeoIP GeoIP-data perl-App-cpanminus perl-BSD-Resource perl-DBI perl-Encode-Detect perl-Geo-IP perl-LWP-UserAgent-Determined perl-Mail-DKIM perl-Net-CIDR perl-Digest-SHA perl-Net-Patricia spamassassin perl-Mail-SPF redis perl-Archive-Zip perl-Net-LibIDN perl-IO-Socket-INET6 perl-Geo-IP'
 
     declare -g -r PACKAGE_BIND='bind'
@@ -210,7 +216,7 @@ DEPENDENCY+=('gcc' 'gcc')
 DEPENDENCY+=('pip3' 'python3-pip python3-setuptools python3-wheel')
 DEPENDENCY+=('wget' 'wget')
 DEPENDENCY+=('vim' 'vim')
-DEPENDENCY+=('cpan' 'cpan')
+DEPENDENCY+=('cpan' "$PACKAGE_CPAN")
 DEPENDENCY+=('dig' 'bind-utils')
 
 ###################################################################################################
