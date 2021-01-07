@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.50.0 for Postfix
+# menu.sh V1.51.0 for Postfix
 #
 # Copyright (c) 2019-2021 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -3574,7 +3574,7 @@ cluster_status() {
 # return values:
 # error code - 0 for changes made, 1 for no changes made
 cluster_enable() {
-    declare -r IP_ADDRESS="$(hostname -I | tr -d ' ')"
+    declare -r IP_ADDRESS="$(hostname -I | awk '{print $1}' | tr -d ' ')"
     declare -r IP_PEER="$(sed -n '/^Host mx$/,/^$/p' ~/.ssh/config | awk 'match($0, /^\tHostName (\S+)$/, a) {print a[1]}')"
     declare -r LIST_IP="$(echo "$IP_ADDRESS"$'\n'"$IP_PEER" | sort | xargs)"
     declare -r IP_MASTER="$(echo "$LIST_IP" | awk '{print $1}')"
@@ -5145,8 +5145,7 @@ install_rspamd() {
             zypper install -y redis rspamd patch
         fi
 
-        echo 'read_servers = "127.0.0.1";' > "$CONFIG_RSPAMD_REDIS"
-        echo 'write_servers = "127.0.0.1";' > "$CONFIG_RSPAMD_REDIS"
+        echo 'read_servers = "127.0.0.1";'$'\n''write_servers = "127.0.0.1";' > "$CONFIG_RSPAMD_REDIS"
         echo 'bind_socket = "127.0.0.1:11333";' > "$CONFIG_RSPAMD_NORMAL"
         echo 'bind_socket = "0.0.0.0:11334";'$'\n''secure_ip = "127.0.0.1";' > "$CONFIG_RSPAMD_CONTROLLER"
         echo 'bind_socket = "127.0.0.1:11332";'$'\n''upstream {'$'\n\t''local {'$'\n\t\t''hosts = "127.0.0.1";'$'\n\t\t''default = true;'$'\n\t''}'$'\n''}' > "$CONFIG_RSPAMD_PROXY"
