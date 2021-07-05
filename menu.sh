@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# menu.sh V1.52.0 for Postfix
+# menu.sh V1.53.0 for Postfix
 #
 # Copyright (c) 2019-2021 NetCon Unternehmensberatung GmbH, https://www.netcon-consulting.com
 #
@@ -16,7 +16,7 @@
 # Postfix, Postfwd, OpenDKIM, SPF-check, Spamassassin, Rspamd and Fail2ban.
 #
 # Changelog:
-# - updated Spamassassin and Postscreen RBL config
+# - DEPRECATED. This tool is no longer supported.
 #
 ###################################################################################################
 
